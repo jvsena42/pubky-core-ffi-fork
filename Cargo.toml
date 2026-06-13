@@ -23,8 +23,20 @@ pubky = "0.9.1"
 bip39 = { version = "2.2.0", features = ["rand"] }
 blake3 = "1.8.3"
 base32 = "0.5.1"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+# Route the pubky SDK's `tracing` events to Android logcat so relay/TLS errors are visible.
+[target.'cfg(target_os = "android")'.dependencies]
+paranoid-android = "0.2.2"
 
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["full"] }
 serde_json = "1.0.114"
 hex = "0.4.3"
+
+# Use the local pubky-core (v0.9.1 + ICANN webpki-roots TLS fix) until the fix is released
+# upstream. See pubky-core fix/icann-webpki-roots.
+[patch.crates-io]
+pubky = { path = "../pubky-core/pubky-sdk" }

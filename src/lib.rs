@@ -58,7 +58,57 @@ impl NetworkClient {
 
 static NETWORK_CLIENT: Lazy<NetworkClient> = Lazy::new(|| NetworkClient::new());
 
+/// Installs a `tracing` subscriber once so the pubky SDK's instrumentation (relay polling,
+/// TLS, DHT) is visible. On Android it goes to logcat (tag `pubkycore`); elsewhere to stderr.
+/// Initialised lazily on the first network client access and also exposed as [init_logging].
+static LOGGING: Lazy<()> = Lazy::new(|| {
+    use tracing_subscriber::prelude::*;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("pubky=info,pubkycore=debug,warn"));
+
+    #[cfg(target_os = "android")]
+    let result = tracing_subscriber::registry()
+        .with(filter)
+        .with(paranoid_android::layer("pubkycore"))
+        .try_init();
+
+    #[cfg(not(target_os = "android"))]
+    let result = tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .try_init();
+
+    let _ = result;
+
+    // Rust panics print to stderr, which is invisible on Android. Route them to the log so a
+    // panicking background task (e.g. the auth-relay poller) is diagnosable.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(target: "pubkycore", "RUST PANIC: {}", info);
+        default_hook(info);
+    }));
+});
+
+/// Idempotently route the SDK's logs to the platform log sink. Safe to call multiple times.
+#[uniffi::export]
+pub fn init_logging() {
+    Lazy::force(&LOGGING);
+}
+
+/// Installs the process-wide rustls `CryptoProvider` exactly once.
+///
+/// Both `ring` (via pkarr) and `aws-lc-rs` (via reqwest's `rustls-tls`) are in the dependency
+/// tree, so rustls 0.23 cannot auto-pick a provider: building a `ClientConfig` for a standard
+/// (ICANN) TLS host — e.g. the auth relay `httprelay.pubky.app` — otherwise **panics** at
+/// runtime ("no process-level CryptoProvider available"), which kills the background auth-relay
+/// poller and surfaces as `RequestExpired`. Pin `ring` to match pkarr's own provider.
+static CRYPTO_PROVIDER: Lazy<()> = Lazy::new(|| {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+});
+
 pub fn get_pubky_client() -> Arc<Pubky> {
+    Lazy::force(&LOGGING);
+    Lazy::force(&CRYPTO_PROVIDER);
     NETWORK_CLIENT.get_client()
 }
 

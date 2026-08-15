@@ -23,6 +23,9 @@ pubky = "0.9.3"
 bip39 = { version = "2.2.0", features = ["rand"] }
 blake3 = "1.8.3"
 base32 = "0.5.1"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 # Android-only: pkarr's relay HTTP client (via reqwest 0.13's `rustls` feature) uses
 # rustls-platform-verifier, which must be handed the JVM + app Context once at startup
@@ -30,9 +33,13 @@ base32 = "0.5.1"
 # Kotlin wrapper calls. Versions are pinned to match what pubky resolves so the
 # rustls-platform-verifier `GLOBAL` static is the same instance across the dep graph.
 # Still required until pkarr's relay client stops using the platform verifier (pkarr #262).
+#
+# `paranoid-android` routes the pubky SDK's `tracing` events to logcat so relay/TLS errors
+# are visible; see `init_logging` in src/lib.rs.
 [target.'cfg(target_os = "android")'.dependencies]
 rustls-platform-verifier = "0.7.0"
 jni = "0.22.4"
+paranoid-android = "0.2.2"
 
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["full"] }

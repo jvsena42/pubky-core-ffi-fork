@@ -1,6 +1,6 @@
 [package]
 name = "pubkycore"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,8 +18,29 @@ tokio = "1.40.0"
 url = "2.5.2"
 base64 = "0.22.1"
 once_cell = "1.19.0"
-reqwest = { version = "0.12.0", default-features = false, features = ["rustls-tls"] }
-pubky = "0.9.3"
+# 0.13, matching what pubky 0.10 and pkarr 7 resolve. Must stay in lockstep with them: the
+# `reqwest::Client` handed to `pkarr::ClientBuilder::reqwest_client` is only type-compatible if
+# it is literally the same crate version, and a 0.12 here would silently become a second,
+# unrelated `reqwest` in the tree.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+# Bundled Mozilla roots for the relay TLS config below — the same crate and major version pubky
+# uses for its own ICANN client, so both paths trust exactly the same set.
+webpki-roots = "1"
+# **Do not go below 0.10**, and note it is only half the Android TLS story.
+#
+# rustls-platform-verifier hard-fails revocation on Android: Let's Encrypt no longer publishes an
+# OCSP responder, Android's PKIXRevocationChecker only tries OCSP, and the AAR turns the resulting
+# CertPathValidatorException into `StatusCode.Revoked`. Reads died as `invalid peer certificate:
+# Revoked` → `HTTP transport error`, which Loopky reports to users as "You're offline". Observed
+# on-device 2026-08-24; the AAR's own escape hatch is gated on `BuildConfig.TEST` so it never
+# applies to a shipped app, and 0.7.0 is the latest release and still carries the bug (their
+# PR #179 is the pending real fix).
+#
+# 0.10 fixes this for the SDK's **ICANN** client only (`icann_tls_config_without_revocation_check`).
+# pkarr's **relay** client is a separate client and was still broken after the bump — measured, not
+# assumed. `relay_tls_config_without_revocation_check` in src/lib.rs is the other half; both are
+# needed, and neither alone made the device stop erroring.
+pubky = "0.10.0"
 bip39 = { version = "2.2.0", features = ["rand"] }
 blake3 = "1.8.3"
 base32 = "0.5.1"
@@ -32,7 +53,14 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 # before any TLS handshake. We expose a JNI entrypoint (see src/rustls_init.rs) that the
 # Kotlin wrapper calls. Versions are pinned to match what pubky resolves so the
 # rustls-platform-verifier `GLOBAL` static is the same instance across the dep graph.
-# Still required until pkarr's relay client stops using the platform verifier (pkarr #262).
+# Still required until pkarr's relay client stops using the platform verifier (pkarr #262) —
+# `cargo tree -i rustls-platform-verifier --target aarch64-linux-android` still shows reqwest 0.13
+# pulling it in through pkarr 7.0, so this is not dead weight even after the pubky 0.10 bump.
+#
+# The consuming app must also ship the crate's *Kotlin* half
+# (`org.rustls.platformverifier.CertificateVerifier`, in the AAR the `rustls-platform-verifier-android`
+# crate vendors). `init` here succeeds without it and the first handshake then fails with
+# "failed to call native verifier" — see loopky PR #122.
 #
 # `paranoid-android` routes the pubky SDK's `tracing` events to logcat so relay/TLS errors
 # are visible; see `init_logging` in src/lib.rs.

@@ -508,11 +508,17 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_await_auth_approval() != 56488:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_await_cookie_auth_approval() != 44552:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_await_grant_auth_approval() != 15252:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_create_recovery_file() != 48846:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_create_tag_id() != 27393:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_decrypt_recovery_file() != 26407:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_delete_file() != 47931:
+    if lib.uniffi_pubkycore_checksum_func_delete_file() != 43485:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_delete_with_session() != 26332:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -524,23 +530,33 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_get() != 6591:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_get_bytes() != 47939:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_get_homeserver() != 40658:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_get_public_key_from_secret_key() != 40316:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_get_signup_token() != 47927:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_list() != 43198:
+    if lib.uniffi_pubkycore_checksum_func_init_logging() != 21182:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_list() != 63419:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_mnemonic_phrase_to_keypair() != 45784:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_parse_auth_url() != 27379:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_parse_deep_link() != 29971:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_publish() != 48989:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_publish_https() != 5614:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_put() != 64514:
+    if lib.uniffi_pubkycore_checksum_func_put() != 32173:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_put_bytes() != 47888:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_put_bytes_with_session() != 50346:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_put_with_session() != 17390:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -556,13 +572,25 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_set_event_listener() != 60071:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_sign_in() != 21584:
+    if lib.uniffi_pubkycore_checksum_func_sign_in() != 23529:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_sign_in_cookie() != 28058:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_sign_in_grant() != 49219:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_sign_out() != 27163:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_sign_up() != 48789:
+    if lib.uniffi_pubkycore_checksum_func_sign_up() != 6399:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_pubkycore_checksum_func_start_auth_flow() != 25681:
+    if lib.uniffi_pubkycore_checksum_func_sign_up_cookie() != 55185:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_sign_up_grant() != 65298:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_start_auth_flow() != 45230:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_start_cookie_auth_flow() != 49536:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow() != 48937:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_switch_network() != 64215:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -595,12 +623,26 @@ _UniffiLib.uniffi_pubkycore_fn_func_await_auth_approval.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_await_auth_approval.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_await_cookie_auth_approval.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_await_cookie_auth_approval.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_approval.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_approval.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_create_recovery_file.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_create_recovery_file.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_create_tag_id.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_create_tag_id.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_decrypt_recovery_file.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -608,6 +650,7 @@ _UniffiLib.uniffi_pubkycore_fn_func_decrypt_recovery_file.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_fn_func_decrypt_recovery_file.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_delete_file.argtypes = (
+    _UniffiRustBuffer,
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -636,6 +679,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_get.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_get.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_get_bytes.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_get_bytes.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_get_homeserver.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -652,7 +700,15 @@ _UniffiLib.uniffi_pubkycore_fn_func_get_signup_token.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_get_signup_token.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_init_logging.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_init_logging.restype = None
 _UniffiLib.uniffi_pubkycore_fn_func_list.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -667,6 +723,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_parse_auth_url.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_parse_auth_url.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_parse_deep_link.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_parse_deep_link.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_publish.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -685,9 +746,25 @@ _UniffiLib.uniffi_pubkycore_fn_func_put.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     _UniffiRustBuffer,
+    _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_put.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_put_bytes.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_put_bytes.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_put_bytes_with_session.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_put_bytes_with_session.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_put_with_session.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -727,9 +804,21 @@ _UniffiLib.uniffi_pubkycore_fn_func_set_event_listener.argtypes = (
 _UniffiLib.uniffi_pubkycore_fn_func_set_event_listener.restype = None
 _UniffiLib.uniffi_pubkycore_fn_func_sign_in.argtypes = (
     _UniffiRustBuffer,
+    _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_sign_in.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_sign_in_cookie.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_sign_in_cookie.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_sign_in_grant.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_sign_in_grant.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_sign_out.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -739,14 +828,42 @@ _UniffiLib.uniffi_pubkycore_fn_func_sign_up.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
     _UniffiRustBuffer,
+    _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_sign_up.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_sign_up_cookie.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_sign_up_cookie.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_sign_up_grant.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_sign_up_grant.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_start_auth_flow.argtypes = (
+    _UniffiRustBuffer,
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_start_auth_flow.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_start_cookie_auth_flow.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_start_cookie_auth_flow.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_switch_network.argtypes = (
     ctypes.c_int8,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1022,9 +1139,18 @@ _UniffiLib.uniffi_pubkycore_checksum_func_auth.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_await_auth_approval.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_await_auth_approval.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_await_cookie_auth_approval.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_await_cookie_auth_approval.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_approval.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_approval.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_create_recovery_file.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_create_recovery_file.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_create_tag_id.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_create_tag_id.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_decrypt_recovery_file.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_decrypt_recovery_file.restype = ctypes.c_uint16
@@ -1046,6 +1172,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_generate_secret_key.restype = ctypes.c
 _UniffiLib.uniffi_pubkycore_checksum_func_get.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_get.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_get_bytes.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_get_bytes.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_get_homeserver.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_get_homeserver.restype = ctypes.c_uint16
@@ -1055,6 +1184,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_get_public_key_from_secret_key.restype
 _UniffiLib.uniffi_pubkycore_checksum_func_get_signup_token.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_get_signup_token.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_init_logging.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_init_logging.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_list.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_list.restype = ctypes.c_uint16
@@ -1064,6 +1196,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_mnemonic_phrase_to_keypair.restype = c
 _UniffiLib.uniffi_pubkycore_checksum_func_parse_auth_url.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_parse_auth_url.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_parse_deep_link.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_parse_deep_link.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_publish.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_publish.restype = ctypes.c_uint16
@@ -1073,6 +1208,12 @@ _UniffiLib.uniffi_pubkycore_checksum_func_publish_https.restype = ctypes.c_uint1
 _UniffiLib.uniffi_pubkycore_checksum_func_put.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_put.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_put_bytes.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_put_bytes.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_put_bytes_with_session.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_put_bytes_with_session.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_put_with_session.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_put_with_session.restype = ctypes.c_uint16
@@ -1097,15 +1238,33 @@ _UniffiLib.uniffi_pubkycore_checksum_func_set_event_listener.restype = ctypes.c_
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_in.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_in.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_in_cookie.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_in_cookie.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_in_grant.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_in_grant.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_out.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_out.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_up.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_sign_up.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_up_cookie.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_up_cookie.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_up_grant.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_sign_up_grant.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_start_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_start_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_start_cookie_auth_flow.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_start_cookie_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_switch_network.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_switch_network.restype = ctypes.c_uint16
@@ -1125,6 +1284,19 @@ _uniffi_check_api_checksums(_UniffiLib)
 
 # Public interface members begin here.
 
+
+class _UniffiConverterUInt16(_UniffiConverterPrimitiveInt):
+    CLASS_NAME = "u16"
+    VALUE_MIN = 0
+    VALUE_MAX = 2**16
+
+    @staticmethod
+    def read(buf):
+        return buf.read_u16()
+
+    @staticmethod
+    def write_unchecked(value, buf):
+        buf.write_u16(value)
 
 class _UniffiConverterBool(_UniffiConverterPrimitive):
     @classmethod
@@ -1176,6 +1348,23 @@ class _UniffiConverterString:
         with _UniffiRustBuffer.alloc_with_builder() as builder:
             builder.write(value.encode("utf-8"))
             return builder.finalize()
+
+class _UniffiConverterBytes(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        size = buf.read_i32()
+        if size < 0:
+            raise InternalError("Unexpected negative byte string length")
+        return buf.read(size)
+
+    @staticmethod
+    def write(value, buf):
+        try:
+            memoryview(value)
+        except TypeError:
+            raise TypeError("a bytes-like object is required, not {!r}".format(type(value).__name__))
+        buf.write_i32(len(value))
+        buf.write(value)
 
 
 
@@ -1368,6 +1557,50 @@ _UniffiConverterCallbackInterfaceEventListener = _UniffiConverterCallbackInterfa
 
 
 
+class _UniffiConverterOptionalUInt16(_UniffiConverterRustBuffer):
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterUInt16.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterUInt16.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+class _UniffiConverterOptionalBool(_UniffiConverterRustBuffer):
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiConverterBool.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiConverterBool.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
 class _UniffiConverterOptionalString(_UniffiConverterRustBuffer):
     @classmethod
     def write(cls, value, buf):
@@ -1420,12 +1653,28 @@ def await_auth_approval() -> "typing.List[str]":
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_await_auth_approval,))
 
 
+def await_cookie_auth_approval() -> "typing.List[str]":
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_await_cookie_auth_approval,))
+
+
+def await_grant_auth_approval() -> "typing.List[str]":
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_approval,))
+
+
 def create_recovery_file(secret_key: "str",passphrase: "str") -> "typing.List[str]":
     
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_create_recovery_file,
         _UniffiConverterString.lower(secret_key),
         _UniffiConverterString.lower(passphrase)))
+
+
+def create_tag_id(uri: "str",label: "str") -> "typing.List[str]":
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_create_tag_id,
+        _UniffiConverterString.lower(uri),
+        _UniffiConverterString.lower(label)))
 
 
 def decrypt_recovery_file(recovery_file: "str",passphrase: "str") -> "typing.List[str]":
@@ -1436,12 +1685,14 @@ def decrypt_recovery_file(recovery_file: "str",passphrase: "str") -> "typing.Lis
         _UniffiConverterString.lower(passphrase)))
 
 
-def delete_file(url: "str",secret_key: "str") -> "typing.List[str]":
+def delete_file(url: "str",secret_key: "str",client_id: "str") -> "typing.List[str]":
+    
     
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_delete_file,
         _UniffiConverterString.lower(url),
-        _UniffiConverterString.lower(secret_key)))
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(client_id)))
 
 
 def delete_with_session(url: "str",session_secret: "str") -> "typing.List[str]":
@@ -1470,6 +1721,12 @@ def get(url: "str") -> "typing.List[str]":
         _UniffiConverterString.lower(url)))
 
 
+def get_bytes(url: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_get_bytes,
+        _UniffiConverterString.lower(url)))
+
+
 def get_homeserver(pubky: "str") -> "typing.List[str]":
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_get_homeserver,
@@ -1490,10 +1747,22 @@ def get_signup_token(homeserver_pubky: "str",admin_password: "str") -> "typing.L
         _UniffiConverterString.lower(admin_password)))
 
 
-def list(url: "str") -> "typing.List[str]":
+def init_logging():
+    _rust_call(_UniffiLib.uniffi_pubkycore_fn_func_init_logging,)
+
+
+def list(url: "str",cursor: "typing.Optional[str]",reverse: "typing.Optional[bool]",limit: "typing.Optional[int]",shallow: "typing.Optional[bool]") -> "typing.List[str]":
+    
+    
+    
+    
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_list,
-        _UniffiConverterString.lower(url)))
+        _UniffiConverterString.lower(url),
+        _UniffiConverterOptionalString.lower(cursor),
+        _UniffiConverterOptionalBool.lower(reverse),
+        _UniffiConverterOptionalUInt16.lower(limit),
+        _UniffiConverterOptionalBool.lower(shallow)))
 
 
 def mnemonic_phrase_to_keypair(mnemonic_phrase: "str") -> "typing.List[str]":
@@ -1505,6 +1774,12 @@ def mnemonic_phrase_to_keypair(mnemonic_phrase: "str") -> "typing.List[str]":
 def parse_auth_url(url: "str") -> "typing.List[str]":
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_parse_auth_url,
+        _UniffiConverterString.lower(url)))
+
+
+def parse_deep_link(url: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_parse_deep_link,
         _UniffiConverterString.lower(url)))
 
 
@@ -1528,14 +1803,38 @@ def publish_https(record_name: "str",target: "str",secret_key: "str") -> "typing
         _UniffiConverterString.lower(secret_key)))
 
 
-def put(url: "str",content: "str",secret_key: "str") -> "typing.List[str]":
+def put(url: "str",content: "str",secret_key: "str",client_id: "str") -> "typing.List[str]":
+    
     
     
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_put,
         _UniffiConverterString.lower(url),
         _UniffiConverterString.lower(content),
-        _UniffiConverterString.lower(secret_key)))
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(client_id)))
+
+
+def put_bytes(url: "str",content: "bytes",secret_key: "str",client_id: "str") -> "typing.List[str]":
+    
+    
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_put_bytes,
+        _UniffiConverterString.lower(url),
+        _UniffiConverterBytes.lower(content),
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(client_id)))
+
+
+def put_bytes_with_session(url: "str",content: "bytes",session_secret: "str") -> "typing.List[str]":
+    
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_put_bytes_with_session,
+        _UniffiConverterString.lower(url),
+        _UniffiConverterBytes.lower(content),
+        _UniffiConverterString.lower(session_secret)))
 
 
 def put_with_session(url: "str",content: "str",session_secret: "str") -> "typing.List[str]":
@@ -1584,10 +1883,26 @@ def set_event_listener(listener: "EventListener"):
         _UniffiConverterCallbackInterfaceEventListener.lower(listener))
 
 
-def sign_in(secret_key: "str") -> "typing.List[str]":
+def sign_in(secret_key: "str",client_id: "str") -> "typing.List[str]":
+    
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_in,
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(client_id)))
+
+
+def sign_in_cookie(secret_key: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_in_cookie,
         _UniffiConverterString.lower(secret_key)))
+
+
+def sign_in_grant(secret_key: "str",client_id: "str") -> "typing.List[str]":
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_in_grant,
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(client_id)))
 
 
 def sign_out(session_secret: "str") -> "typing.List[str]":
@@ -1596,20 +1911,60 @@ def sign_out(session_secret: "str") -> "typing.List[str]":
         _UniffiConverterString.lower(session_secret)))
 
 
-def sign_up(secret_key: "str",homeserver: "str",signup_token: "typing.Optional[str]") -> "typing.List[str]":
+def sign_up(secret_key: "str",homeserver: "str",signup_token: "typing.Optional[str]",client_id: "str") -> "typing.List[str]":
+    
     
     
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_up,
         _UniffiConverterString.lower(secret_key),
         _UniffiConverterString.lower(homeserver),
+        _UniffiConverterOptionalString.lower(signup_token),
+        _UniffiConverterString.lower(client_id)))
+
+
+def sign_up_cookie(secret_key: "str",homeserver: "str",signup_token: "typing.Optional[str]") -> "typing.List[str]":
+    
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_up_cookie,
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(homeserver),
         _UniffiConverterOptionalString.lower(signup_token)))
 
 
-def start_auth_flow(capabilities_str: "str") -> "typing.List[str]":
+def sign_up_grant(secret_key: "str",homeserver: "str",signup_token: "typing.Optional[str]",client_id: "str") -> "typing.List[str]":
+    
+    
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_sign_up_grant,
+        _UniffiConverterString.lower(secret_key),
+        _UniffiConverterString.lower(homeserver),
+        _UniffiConverterOptionalString.lower(signup_token),
+        _UniffiConverterString.lower(client_id)))
+
+
+def start_auth_flow(capabilities_str: "str",client_id: "str") -> "typing.List[str]":
+    
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_start_auth_flow,
+        _UniffiConverterString.lower(capabilities_str),
+        _UniffiConverterString.lower(client_id)))
+
+
+def start_cookie_auth_flow(capabilities_str: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_start_cookie_auth_flow,
         _UniffiConverterString.lower(capabilities_str)))
+
+
+def start_grant_auth_flow(capabilities_str: "str",client_id: "str") -> "typing.List[str]":
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow,
+        _UniffiConverterString.lower(capabilities_str),
+        _UniffiConverterString.lower(client_id)))
 
 
 def switch_network(use_testnet: "bool") -> "typing.List[str]":
@@ -1628,7 +1983,10 @@ __all__ = [
     "InternalError",
     "auth",
     "await_auth_approval",
+    "await_cookie_auth_approval",
+    "await_grant_auth_approval",
     "create_recovery_file",
+    "create_tag_id",
     "decrypt_recovery_file",
     "delete_file",
     "delete_with_session",
@@ -1636,15 +1994,20 @@ __all__ = [
     "generate_mnemonic_phrase_and_keypair",
     "generate_secret_key",
     "get",
+    "get_bytes",
     "get_homeserver",
     "get_public_key_from_secret_key",
     "get_signup_token",
+    "init_logging",
     "list",
     "mnemonic_phrase_to_keypair",
     "parse_auth_url",
+    "parse_deep_link",
     "publish",
     "publish_https",
     "put",
+    "put_bytes",
+    "put_bytes_with_session",
     "put_with_session",
     "remove_event_listener",
     "republish_homeserver",
@@ -1653,9 +2016,15 @@ __all__ = [
     "revalidate_session",
     "set_event_listener",
     "sign_in",
+    "sign_in_cookie",
+    "sign_in_grant",
     "sign_out",
     "sign_up",
+    "sign_up_cookie",
+    "sign_up_grant",
     "start_auth_flow",
+    "start_cookie_auth_flow",
+    "start_grant_auth_flow",
     "switch_network",
     "validate_mnemonic_phrase",
     "EventNotifier",

@@ -26,7 +26,7 @@ use pubky::recovery_file;
 #[allow(deprecated)]
 use pubky::{
     AuthFlowKind, Capabilities, ClientId, Pubky, PubkyCookieAuthFlow, PubkyGrantAuthFlow,
-    PubkySession, PublicKey,
+    PubkyHttpClient, PubkySession, PublicKey,
 };
 use serde_json::json;
 use std::str;
@@ -36,6 +36,67 @@ use tokio;
 use tokio::runtime::Runtime;
 use tokio::time;
 
+/// TLS config for pkarr's **relay** HTTP client: bundled webpki roots, certificate revocation
+/// checking off.
+///
+/// This is the same treatment pubky 0.10 gives its own ICANN client in
+/// `icann_tls_config_without_revocation_check`, applied to the one client that upgrade does not
+/// reach. pkarr builds its relay client from reqwest's defaults, which on Android means
+/// rustls-platform-verifier — and that verifier hard-fails revocation:
+///
+/// * Let's Encrypt no longer publishes an OCSP responder,
+/// * Android's `PKIXRevocationChecker` only tries OCSP,
+/// * so validation raises `CertPathValidatorException: Certificate does not specify OCSP
+///   responder`, which the verifier's Kotlin half reports as `StatusCode.Revoked`.
+///
+/// Every `_pubky.<key>` resolution that fell back to the relay then died as `invalid peer
+/// certificate: Revoked` → `HTTP transport error`, which Loopky renders to users as "You're
+/// offline". Resolutions the DHT answered succeeded, which is what made it look intermittent.
+///
+/// Dropping revocation checking is what upstream chose for the same problem, and the trade is
+/// narrow: these are relay lookups of public, signed pkarr records, and the record's own
+/// signature — not the transport — is what makes the answer trustworthy.
+///
+/// Not gated on `cfg(target_os = "android")`: only Android is broken today, but a config that
+/// differs per platform is one nobody tests, and bundled roots are the right answer everywhere
+/// for a client that ships its own trust anchors.
+fn relay_tls_config_without_revocation_check() -> rustls::ClientConfig {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let mut tls_config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("ring provides safe default protocol versions")
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
+    tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    tls_config
+}
+
+/// A [`Pubky`] whose pkarr relay client uses [`relay_tls_config_without_revocation_check`].
+///
+/// Built through `PubkyHttpClient::builder()` rather than `Pubky::new()`/`Pubky::testnet()`
+/// because the pkarr builder is the only seam that reaches the relay client's TLS.
+fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
+    Lazy::force(&CRYPTO_PROVIDER);
+    let relay_http = reqwest::Client::builder()
+        .tls_backend_preconfigured(relay_tls_config_without_revocation_check())
+        .build()?;
+    let mut builder = PubkyHttpClient::builder();
+    builder.pkarr(|pkarr| pkarr.reqwest_client(relay_http));
+    if use_testnet {
+        builder.testnet();
+    }
+    Ok(Pubky::with_client(builder.build()?))
+}
+
+/// Panics carry the same weight as the `Pubky::new().unwrap()` they replace: without a transport
+/// there is nothing the FFI can do, and every exported function would fail on its first call.
+fn build_pubky_or_panic(use_testnet: bool) -> Arc<Pubky> {
+    Arc::new(build_pubky(use_testnet).expect("Failed to build Pubky client"))
+}
+
 pub struct NetworkClient {
     client: Mutex<Arc<Pubky>>,
 }
@@ -43,16 +104,12 @@ pub struct NetworkClient {
 impl NetworkClient {
     fn new() -> Self {
         Self {
-            client: Mutex::new(Arc::new(Pubky::new().unwrap())),
+            client: Mutex::new(build_pubky_or_panic(false)),
         }
     }
 
     pub fn switch_network(&self, use_testnet: bool) {
-        let new_client = if use_testnet {
-            Arc::new(Pubky::testnet().unwrap())
-        } else {
-            Arc::new(Pubky::new().unwrap())
-        };
+        let new_client = build_pubky_or_panic(use_testnet);
 
         let mut client = self.client.lock().unwrap();
         *client = new_client;

@@ -147,9 +147,18 @@ mod tests {
         let url = format!("pubky://{}/pub/test.com/binfile", public_key);
         let content: Vec<u8> = vec![0x00, 0x01, 0xff, 0xfe, 0x7f, 0x80, 0xde, 0xad, 0xbe, 0xef];
 
-        let _ = sign_up(secret_key.clone(), homeserver, None);
+        // Guarded like its siblings: without a signup token there is no account, and the failure
+        // then surfaces two calls later as an unresolvable homeserver.
+        if sign_up_for_test(secret_key.clone(), homeserver).is_none() {
+            return;
+        }
 
-        let put_result = put_bytes(url.clone(), content.clone(), secret_key.clone());
+        let put_result = put_bytes(
+            url.clone(),
+            content.clone(),
+            secret_key.clone(),
+            CLIENT_ID.to_string(),
+        );
         assert_eq!(put_result[0], "false", "put_bytes error: {:?}", put_result);
 
         std::thread::sleep(std::time::Duration::from_secs(1));

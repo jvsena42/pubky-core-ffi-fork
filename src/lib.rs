@@ -2,6 +2,7 @@ mod auth;
 mod keypair;
 #[cfg(target_os = "android")]
 mod rustls_init;
+mod session_cache;
 mod tests;
 mod types;
 mod utils;
@@ -29,6 +30,7 @@ use pubky::{
     PubkyHttpClient, PubkySession, PublicKey,
 };
 use serde_json::json;
+use session_cache::SessionOpError;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -113,6 +115,10 @@ impl NetworkClient {
 
         let mut client = self.client.lock().unwrap();
         *client = new_client;
+        // The cached sessions were imported against the outgoing client and belong to the
+        // outgoing network's homeservers. Reusing one after the switch would authenticate a
+        // request to a host this client cannot resolve.
+        session_cache::clear();
     }
 
     pub fn get_client(&self) -> Arc<Pubky> {
@@ -737,14 +743,13 @@ pub fn sign_in_cookie(secret_key: String) -> Vec<String> {
 pub fn sign_out(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-
-        let session = match pubky_client.restore_session(&session_secret).await {
+        let session = match session_cache::session_for(&session_secret).await {
             Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
+            Err(message) => return create_response_vector(true, message),
         };
+        // Before the call, not after: whether the homeserver accepts the sign-out or not, this
+        // secret must not be handed to another write from the cache.
+        session_cache::forget(&session_secret);
 
         // Sign out
         match session.signout().await {
@@ -760,12 +765,12 @@ pub fn sign_out(session_secret: String) -> Vec<String> {
 pub fn revalidate_session(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
+        // Deliberately *not* the cached session: asking whether a session is still good is the one
+        // question a cached answer cannot answer. The fresh import replaces the cached entry, so
+        // the writes that follow a revalidation start from a session the homeserver just accepted.
+        let session = match session_cache::refreshed_session(&session_secret).await {
             Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
+            Err(message) => return create_response_vector(true, message),
         };
 
         // Revalidate returns the session info if still valid, None if expired
@@ -1412,14 +1417,6 @@ pub fn put_with_session(url: String, content: String, session_secret: String) ->
     let runtime = TOKIO_RUNTIME.clone();
     let content_bytes = content.into_bytes();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(s) => s,
-            Err(e) => {
-                return create_response_vector(true, format!("Failed to import session: {}", e))
-            }
-        };
-
         let trimmed_url = url.trim_end_matches('/');
         let path = if let Some(path_start) = trimmed_url.find("/pub/") {
             &trimmed_url[path_start..]
@@ -1427,9 +1424,18 @@ pub fn put_with_session(url: String, content: String, session_secret: String) ->
             return create_response_vector(true, "Invalid URL: must contain /pub/".to_string());
         };
 
-        match session.storage().put(path, content_bytes).await {
+        let write = session_cache::with_session(&session_secret, |session| {
+            let body = content_bytes.clone();
+            async move { session.storage().put(path, body).await }
+        })
+        .await;
+
+        match write {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(e) => create_response_vector(true, format!("Failed to put: {}", e)),
+            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
+            Err(SessionOpError::Op(e)) => {
+                create_response_vector(true, format!("Failed to put: {}", e))
+            }
         }
     })
 }
@@ -1454,16 +1460,6 @@ pub fn put_bytes_with_session(
 ) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let http_client = pubky_client.client().clone();
-
-        let session = match PubkySession::import_secret(&session_secret, Some(http_client)).await {
-            Ok(s) => s,
-            Err(e) => {
-                return create_response_vector(true, format!("Failed to import session: {}", e))
-            }
-        };
-
         let trimmed_url = url.trim_end_matches('/');
         let path = if let Some(path_start) = trimmed_url.find("/pub/") {
             &trimmed_url[path_start..]
@@ -1471,9 +1467,18 @@ pub fn put_bytes_with_session(
             return create_response_vector(true, "Invalid URL: must contain /pub/".to_string());
         };
 
-        match session.storage().put(path, content).await {
+        let write = session_cache::with_session(&session_secret, |session| {
+            let body = content.clone();
+            async move { session.storage().put(path, body).await }
+        })
+        .await;
+
+        match write {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(e) => create_response_vector(true, format!("Failed to put: {}", e)),
+            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
+            Err(SessionOpError::Op(e)) => {
+                create_response_vector(true, format!("Failed to put: {}", e))
+            }
         }
     })
 }
@@ -1482,14 +1487,6 @@ pub fn put_bytes_with_session(
 pub fn delete_with_session(url: String, session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(s) => s,
-            Err(e) => {
-                return create_response_vector(true, format!("Failed to import session: {}", e))
-            }
-        };
-
         let trimmed_url = url.trim_end_matches('/');
         let path = if let Some(path_start) = trimmed_url.find("/pub/") {
             &trimmed_url[path_start..]
@@ -1497,9 +1494,17 @@ pub fn delete_with_session(url: String, session_secret: String) -> Vec<String> {
             return create_response_vector(true, "Invalid URL: must contain /pub/".to_string());
         };
 
-        match session.storage().delete(path).await {
+        let deletion = session_cache::with_session(&session_secret, |session| async move {
+            session.storage().delete(path).await
+        })
+        .await;
+
+        match deletion {
             Ok(_) => create_response_vector(false, "Deleted successfully".to_string()),
-            Err(e) => create_response_vector(true, format!("Failed to delete: {}", e)),
+            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
+            Err(SessionOpError::Op(e)) => {
+                create_response_vector(true, format!("Failed to delete: {}", e))
+            }
         }
     })
 }

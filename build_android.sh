@@ -53,6 +53,22 @@ cargo ndk \
     -t x86_64 \
     build --release
 
+# Strip debug symbols.
+#
+# cargo-ndk stopped doing this: it stripped release output by default up to 3.x, and 4.x dropped
+# the behaviour along with its `--no-strip` flag. Nothing warns about it, so the only symptom is
+# that each ABI's .so quietly grows ~40% (arm64: 11.9MB -> 16.8MB) and the consuming app ships
+# four of them. Do it explicitly instead of depending on a build-tool default that has already
+# changed once.
+echo "Stripping debug symbols..."
+NDK_DIR="${ANDROID_NDK_HOME:-${NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
+LLVM_STRIP=$(ls "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin/llvm-strip 2>/dev/null | head -1)
+if [ -z "$LLVM_STRIP" ]; then
+    echo "Error: llvm-strip not found. Set ANDROID_NDK_HOME to your NDK (e.g. \$ANDROID_HOME/ndk/27.1.12297006)."
+    exit 1
+fi
+find "$JNILIBS_DIR" -name 'libpubkycore.so' -exec "$LLVM_STRIP" {} +
+
 # Generate Kotlin bindings
 echo "Generating Kotlin bindings..."
 LIBRARY_PATH="./target/release/libpubkycore.dylib"

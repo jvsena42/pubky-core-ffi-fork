@@ -131,10 +131,7 @@ mod tests {
     // (models/tag.rs test_create_id) — guards spec compatibility.
     #[test]
     fn test_create_tag_id_matches_pubky_app_specs() {
-        let result = create_tag_id(
-            "https://example.com/post/1".to_string(),
-            "cool".to_string(),
-        );
+        let result = create_tag_id("https://example.com/post/1".to_string(), "cool".to_string());
         assert_eq!(result[0], "false");
         assert_eq!(result[1], "9SH0YGPRX0VNZ4A2P80TJ4SBZW");
     }
@@ -147,9 +144,18 @@ mod tests {
         let url = format!("pubky://{}/pub/test.com/binfile", public_key);
         let content: Vec<u8> = vec![0x00, 0x01, 0xff, 0xfe, 0x7f, 0x80, 0xde, 0xad, 0xbe, 0xef];
 
-        let _ = sign_up(secret_key.clone(), homeserver, None);
+        // Guarded like its siblings: without a signup token there is no account, and the failure
+        // then surfaces two calls later as an unresolvable homeserver.
+        if sign_up_for_test(secret_key.clone(), homeserver).is_none() {
+            return;
+        }
 
-        let put_result = put_bytes(url.clone(), content.clone(), secret_key.clone());
+        let put_result = put_bytes(
+            url.clone(),
+            content.clone(),
+            secret_key.clone(),
+            CLIENT_ID.to_string(),
+        );
         assert_eq!(put_result[0], "false", "put_bytes error: {:?}", put_result);
 
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -255,6 +261,74 @@ mod tests {
         // Test sign out
         let sign_out_result = sign_out(grant_secret);
         assert_eq!(sign_out_result[0], "false");
+    }
+
+    /// Several authenticated calls on one session secret, which is the shape every real caller
+    /// has: publish writes a chunk per ~100 cards, a deck delete removes one record per chunk.
+    ///
+    /// The session is imported on the first call and reused after it (see `session_cache`), so
+    /// this is also the regression test for that reuse — a cached session that the homeserver
+    /// will not accept fails here, on the second write, rather than on the first.
+    #[test]
+    fn test_repeated_writes_reuse_one_session() {
+        let (keypair, secret_key, homeserver) = get_test_setup();
+
+        if sign_up_for_test(secret_key.clone(), homeserver).is_none() {
+            return;
+        }
+
+        let sign_in_result = sign_in(secret_key.clone(), CLIENT_ID.to_string());
+        assert_eq!(sign_in_result[0], "false", "sign in: {:?}", sign_in_result);
+        let session: serde_json::Value = serde_json::from_str(&sign_in_result[1]).unwrap();
+        let session_secret = session["grant_secret"]
+            .as_str()
+            .or_else(|| session["cookie_secret"].as_str())
+            .expect("session secret missing")
+            .to_string();
+
+        let public_key = keypair.public_key().z32();
+        let urls: Vec<String> = (0..3)
+            .map(|n| format!("pubky://{}/pub/test.com/reuse/{}", public_key, n))
+            .collect();
+
+        for url in &urls {
+            let result =
+                put_with_session(url.clone(), "reused".to_string(), session_secret.clone());
+            assert_eq!(result[0], "false", "put {}: {:?}", url, result);
+        }
+
+        let bytes_url = format!("pubky://{}/pub/test.com/reuse/blob", public_key);
+        let put_bytes_result = put_bytes_with_session(
+            bytes_url.clone(),
+            vec![0xde, 0xad, 0xbe, 0xef],
+            session_secret.clone(),
+        );
+        assert_eq!(
+            put_bytes_result[0], "false",
+            "put_bytes: {:?}",
+            put_bytes_result
+        );
+
+        for url in urls.iter().chain(std::iter::once(&bytes_url)) {
+            let result = delete_with_session(url.clone(), session_secret.clone());
+            assert_eq!(result[0], "false", "delete {}: {:?}", url, result);
+        }
+
+        let sign_out_result = sign_out(session_secret.clone());
+        assert_eq!(
+            sign_out_result[0], "false",
+            "sign out: {:?}",
+            sign_out_result
+        );
+
+        // Sign-out drops the cached session, so this re-imports — and the homeserver now refuses
+        // the secret, which is the failure the cache must not be able to paper over.
+        let after_sign_out = put_with_session(urls[0].clone(), "gone".to_string(), session_secret);
+        assert_eq!(
+            after_sign_out[0], "true",
+            "a write after sign-out must fail: {:?}",
+            after_sign_out
+        );
     }
 
     // Test delete functionality

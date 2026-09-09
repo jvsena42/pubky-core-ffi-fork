@@ -30,7 +30,6 @@ use pubky::{
     PubkyHttpClient, PubkySession, PublicKey,
 };
 use serde_json::json;
-use session_cache::SessionOpError;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -793,9 +792,15 @@ pub fn revalidate_session(session_secret: String) -> Vec<String> {
                     session_to_json_with_grant_secret(&session, &grant_secret),
                 )
             }
+            // The same marker the import path uses: this is the other way the homeserver says
+            // "sign in again", and a consumer should not need two strings to recognise one answer.
             Ok(None) => create_response_vector(
                 true,
-                "Session is no longer valid (expired or invalidated)".to_string(),
+                format!(
+                    "{}: the homeserver refused this session as invalid \
+                     (expired or invalidated)",
+                    session_cache::SESSION_REJECTED
+                ),
             ),
             Err(error) => {
                 create_response_vector(true, format!("Failed to revalidate session: {}", error))
@@ -1432,10 +1437,7 @@ pub fn put_with_session(url: String, content: String, session_secret: String) ->
 
         match write {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
-            Err(SessionOpError::Op(e)) => {
-                create_response_vector(true, format!("Failed to put: {}", e))
-            }
+            Err(error) => create_response_vector(true, error.into_message("Failed to put")),
         }
     })
 }
@@ -1475,10 +1477,7 @@ pub fn put_bytes_with_session(
 
         match write {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
-            Err(SessionOpError::Op(e)) => {
-                create_response_vector(true, format!("Failed to put: {}", e))
-            }
+            Err(error) => create_response_vector(true, error.into_message("Failed to put")),
         }
     })
 }
@@ -1501,10 +1500,7 @@ pub fn delete_with_session(url: String, session_secret: String) -> Vec<String> {
 
         match deletion {
             Ok(_) => create_response_vector(false, "Deleted successfully".to_string()),
-            Err(SessionOpError::Import(message)) => create_response_vector(true, message),
-            Err(SessionOpError::Op(e)) => {
-                create_response_vector(true, format!("Failed to delete: {}", e))
-            }
+            Err(error) => create_response_vector(true, error.into_message("Failed to delete")),
         }
     })
 }

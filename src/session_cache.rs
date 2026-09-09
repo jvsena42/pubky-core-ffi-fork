@@ -24,6 +24,21 @@
 //! A grant restore mints a fresh short-lived bearer rather than revalidating a cookie. Caching one
 //! is the same trade and the same recovery: the bearer eventually expires, the homeserver says so,
 //! and the retry mints another.
+//!
+//! ## Why the wording is part of the contract
+//!
+//! Every failure here leaves as a `String` — the FFI has no typed error surface — and for a long
+//! time every one of them left as the *same* string, `"Failed to import session: …"`. A consumer
+//! could not tell a homeserver that refused the session from a homeserver having a bad minute, so
+//! it had to guess from prose, and the guess is not symmetric: reading a refusal as trouble costs a
+//! retry, while reading trouble as a refusal costs the credential. Loopky signs the user out on
+//! that verdict, and signing out revokes the session and clears the local key with it — so one
+//! transient `500` destroyed a session that was working (pubky/loopky#283).
+//!
+//! The typed error is right here, and [`is_session_rejected`] already knows the answer. So a
+//! refusal now says so: [`SESSION_REJECTED`] prefixes exactly the failures a new sign-in fixes, and
+//! nothing else. It is deliberately worded to still contain "session" and "invalid", because a
+//! consumer built against an older binary matches on those and must keep working.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -44,14 +59,54 @@ static SESSIONS: Lazy<Mutex<HashMap<String, PubkySession>>> =
 /// per surviving session and nothing else.
 const MAX_CACHED_SESSIONS: usize = 4;
 
+/// The one wording that means "this session is finished — sign in again".
+///
+/// Produced only where the *typed* error says the homeserver refused the session, never from
+/// reading a message back. Everything else the session path can fail with is a reason to retry, and
+/// says so by not carrying this.
+///
+/// The rest of the sentence keeps the words "session" and "invalid" on purpose: a consumer built
+/// against a binary that predates this classifies on those, and must not stop recognising the one
+/// failure it most needs to.
+pub const SESSION_REJECTED: &str = "Session rejected";
+
+fn rejected(error: &Error, detail: impl std::fmt::Display) -> String {
+    format!("{SESSION_REJECTED}: the homeserver refused this session as invalid: {detail}")
+        + if matches!(error, Error::Authentication(_)) {
+            " (authentication)"
+        } else {
+            ""
+        }
+}
+
 /// What went wrong in [`with_session`].
 pub enum SessionOpError {
-    /// The session could not be imported at all. Already formatted with the wording every
-    /// `*_with_session` entry point has always returned, because callers match on it.
+    /// The session could not be imported at all. Already formatted — [`SESSION_REJECTED`] when the
+    /// homeserver refused it, otherwise the wording every `*_with_session` entry point has always
+    /// returned, because callers match on it.
     Import(String),
-    /// The operation itself failed. The caller formats this with its own verb ("Failed to put",
-    /// "Failed to delete") so the FFI's error surface is unchanged.
+    /// The operation itself failed. Formatted by [`SessionOpError::into_message`] with the caller's
+    /// own verb, so the FFI's error surface is unchanged apart from the rejection marker.
     Op(Error),
+}
+
+impl SessionOpError {
+    /// The FFI error payload for this failure, under the caller's own `verb` ("Failed to put").
+    ///
+    /// The verb matters less than the marker. A rejection that survives [`with_session`]'s retry
+    /// arrives here rather than as an [`SessionOpError::Import`] — the cold path runs the operation
+    /// against a session it has just imported, so a `401` on the write is reported under the
+    /// *write's* wording and mentions no session at all. That is the shape a consumer cannot
+    /// classify and the reason this is a method rather than three `format!`s at the call sites.
+    pub fn into_message(self, verb: &str) -> String {
+        match self {
+            SessionOpError::Import(message) => message,
+            SessionOpError::Op(error) if is_session_rejected(&error) => {
+                rejected(&error, format_args!("{verb}: {error}"))
+            }
+            SessionOpError::Op(error) => format!("{verb}: {error}"),
+        }
+    }
 }
 
 /// A poisoned cache is a cache, not a dead one: a panic elsewhere must not turn every subsequent
@@ -95,6 +150,8 @@ async fn import(secret: &str) -> Result<PubkySession, String> {
             remember(secret, &session);
             Ok(session)
         }
+        // Classified here, where the typed error still exists. Downstream this is prose.
+        Err(error) if is_session_rejected(&error) => Err(rejected(&error, &error)),
         Err(error) => Err(format!("Failed to import session: {}", error)),
     }
 }
@@ -160,7 +217,7 @@ fn is_session_rejected(error: &Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_session_rejected;
+    use super::{is_session_rejected, SessionOpError, SESSION_REJECTED};
     use pubky::errors::{AuthError, RequestError};
     use pubky::{Error, StatusCode};
 
@@ -169,6 +226,65 @@ mod tests {
             status,
             message: String::new(),
         })
+    }
+
+    /// The whole point of the marker: the caller must be able to tell the one failure a new
+    /// sign-in fixes from the ones a retry fixes, without reading prose. Reading a refusal as
+    /// trouble costs a retry; reading trouble as a refusal costs the credential.
+    #[test]
+    fn only_a_refused_session_is_marked() {
+        let refused =
+            SessionOpError::Op(server(StatusCode::UNAUTHORIZED)).into_message("Failed to put");
+        assert!(refused.starts_with(SESSION_REJECTED), "{refused}");
+        assert!(refused.contains("Failed to put"), "{refused}");
+
+        for busy in [
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INSUFFICIENT_STORAGE,
+        ] {
+            let message = SessionOpError::Op(server(busy)).into_message("Failed to put");
+            assert!(!message.contains(SESSION_REJECTED), "{busy}: {message}");
+            assert!(message.starts_with("Failed to put"), "{busy}: {message}");
+        }
+    }
+
+    /// A rejection surviving `with_session`'s retry arrives as an `Op`, under the *write's*
+    /// wording — the cold path runs the operation against a session it has just imported, so the
+    /// message mentions no session at all. That is the shape a consumer used to classify as
+    /// "unknown" and the reason the verb is formatted here rather than at the call site.
+    #[test]
+    fn a_rejection_reported_under_the_writes_own_verb_is_still_marked() {
+        let message = SessionOpError::Op(Error::Authentication(AuthError::RequestExpired))
+            .into_message("Failed to delete");
+
+        assert!(message.starts_with(SESSION_REJECTED), "{message}");
+        assert!(message.contains("(authentication)"), "{message}");
+    }
+
+    /// A consumer built against a binary that predates the marker classifies on the words
+    /// "session" and "invalid"/"expired". Losing those would make the one failure it most needs to
+    /// recognise the one failure it silently stops recognising, so they stay in the sentence.
+    #[test]
+    fn the_marker_still_reads_as_an_expiry_to_an_older_consumer() {
+        let message =
+            SessionOpError::Op(server(StatusCode::FORBIDDEN)).into_message("Failed to put");
+        let lowered = message.to_lowercase();
+
+        assert!(lowered.contains("session"), "{message}");
+        assert!(lowered.contains("invalid"), "{message}");
+    }
+
+    /// An import failure is passed through untouched: it was classified at the source, where the
+    /// typed error still existed, and re-deciding it from the string here is the mistake this
+    /// whole change exists to remove.
+    #[test]
+    fn an_import_message_is_never_reclassified() {
+        let message = SessionOpError::Import("Failed to import session: whatever".to_string())
+            .into_message("Failed to put");
+
+        assert_eq!(message, "Failed to import session: whatever");
     }
 
     #[test]

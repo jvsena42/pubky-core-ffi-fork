@@ -536,6 +536,7 @@ mod tests {
 
     #[test]
     fn test_auth_strategy_entrypoints_are_explicit() {
+        let _lock = auth_flow_lock();
         let cookie_result = await_cookie_auth_approval();
         assert_eq!(cookie_result[0], "true");
         assert_eq!(cookie_result[1], "No auth flow in progress");
@@ -695,6 +696,145 @@ mod tests {
         assert_eq!(
             json1["uri"], json2["uri"],
             "Same mnemonic should produce same URI"
+        );
+    }
+
+    static AUTH_FLOW_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Serializes the tests that use the global auth-flow slot.
+    fn auth_flow_lock() -> std::sync::MutexGuard<'static, ()> {
+        AUTH_FLOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Only a transport failure on the flow's own relay channel is resumable. A failure against
+    /// any other URL — the homeserver's grant exchange, after the approval was ACKed — must end
+    /// the flow, or a restored listener waits on an empty inbox forever.
+    #[tokio::test]
+    async fn test_relay_transport_failure_is_matched_on_the_relay_url() {
+        Lazy::force(&CRYPTO_PROVIDER);
+        // Port 9 is `discard`; nothing listens there locally, so this fails at connect.
+        let transport = reqwest::get("http://127.0.0.1:9/inbox/channel")
+            .await
+            .expect_err("nothing listens on port 9");
+        let error = pubky::Error::Request(pubky::errors::RequestError::Transport(transport));
+
+        assert!(grant_resume::is_relay_transport_failure(
+            &error,
+            "http://127.0.0.1:9/inbox"
+        ));
+        assert!(grant_resume::is_relay_transport_failure(
+            &error,
+            "http://127.0.0.1:9/inbox/"
+        ));
+        assert!(!grant_resume::is_relay_transport_failure(
+            &error,
+            "http://127.0.0.1:9/in"
+        ));
+        assert!(!grant_resume::is_relay_transport_failure(
+            &error,
+            "https://httprelay.pubky.app/inbox"
+        ));
+
+        let expired = pubky::Error::Authentication(pubky::errors::AuthError::RequestExpired);
+        assert!(!grant_resume::is_relay_transport_failure(
+            &expired,
+            "http://127.0.0.1:9/inbox"
+        ));
+    }
+
+    #[test]
+    fn test_resume_backs_off_then_gives_up() {
+        use grant_resume::{resume_delay, MAX_BACKOFF, MAX_OUTAGE, RESUME_WINDOW};
+        use std::time::Duration;
+        let zero = Duration::ZERO;
+
+        // A poll that held open and was cut: straight back in.
+        assert_eq!(resume_delay(0, zero, zero), Some(Duration::from_secs(1)));
+        // An outage: back off, capped.
+        assert_eq!(resume_delay(2, zero, zero), Some(Duration::from_secs(4)));
+        assert_eq!(resume_delay(9, zero, zero), Some(MAX_BACKOFF));
+        // Waited out long enough, or past what any caller still waits for.
+        assert_eq!(resume_delay(3, MAX_OUTAGE, zero), None);
+        assert_eq!(resume_delay(0, zero, RESUME_WINDOW), None);
+    }
+
+    /// A second sign-in supersedes the first, so a resume loop still running for the old one stops
+    /// at its next boundary instead of polling a channel nobody is waiting on.
+    #[test]
+    fn test_starting_a_grant_flow_supersedes_the_previous_one() {
+        let _lock = auth_flow_lock();
+        let caps = "/pub/pubky-core-ffi.test/:rw".to_string();
+
+        assert_eq!(
+            start_grant_auth_flow(caps.clone(), CLIENT_ID.to_string())[0],
+            "false"
+        );
+        let first = grant_resume::current().expect("a local grant flow is remembered");
+        assert_eq!(
+            start_grant_auth_flow(caps, CLIENT_ID.to_string())[0],
+            "false"
+        );
+        let second = grant_resume::current().expect("a local grant flow is remembered");
+
+        assert!(!grant_resume::is_current(first.generation));
+        assert!(grant_resume::is_current(second.generation));
+        grant_resume::forget(first.generation);
+        assert!(
+            grant_resume::current().is_some(),
+            "forgetting a superseded flow must not drop the live one"
+        );
+        grant_resume::forget(second.generation);
+        assert!(grant_resume::current().is_none());
+        drop(GRANT_AUTH_FLOW.lock().unwrap().take());
+    }
+
+    /// The premise of the resume, against the real relay and homeserver: a flow rejoined after its
+    /// listener died still collects an approval posted while nobody was polling. Needs a signer
+    /// registered on its homeserver, as `PUBKY_TEST_SIGNER_MNEMONIC`.
+    #[test]
+    fn test_restored_grant_flow_collects_an_approval_posted_while_nobody_listened() {
+        let _lock = auth_flow_lock();
+        let Some(mnemonic) = std::env::var("PUBKY_TEST_SIGNER_MNEMONIC")
+            .ok()
+            .filter(|m| !m.trim().is_empty())
+        else {
+            eprintln!("Skipping: set PUBKY_TEST_SIGNER_MNEMONIC to a registered test identity");
+            return;
+        };
+        let signer = crate::keypair::mnemonic_to_keypair(mnemonic.trim()).expect("valid mnemonic");
+        let signer_pubky = signer.public_key().z32();
+
+        let started = start_grant_auth_flow(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+        );
+        assert_eq!(started[0], "false", "start: {:?}", started);
+        let pending = grant_resume::current().expect("a local grant flow is remembered");
+
+        // Dropping the flow aborts its listener before any approval — the long-poll has "died".
+        drop(GRANT_AUTH_FLOW.lock().unwrap().take());
+
+        let approved = auth(started[1].clone(), hex::encode(signer.secret_key()));
+        assert_eq!(approved[0], "false", "signer approval: {:?}", approved);
+
+        // `restore` starts the relay listener, which needs a runtime. The product path only calls
+        // it from inside `await_grant_auth_approval`'s `block_on`; a test thread has none.
+        let restored = TOKIO_RUNTIME
+            .block_on(async { grant_resume::restore(&pending) })
+            .expect("restore rejoins the channel");
+        *GRANT_AUTH_FLOW.lock().unwrap() = Some(restored);
+        let result = await_grant_auth_approval();
+        assert_eq!(result[0], "false", "await: {:?}", result);
+        assert!(
+            result[1].contains(&signer_pubky),
+            "session for the signer: {}",
+            result[1]
+        );
+        assert!(
+            grant_resume::current().is_none(),
+            "state is dropped once the flow completes"
         );
     }
 }

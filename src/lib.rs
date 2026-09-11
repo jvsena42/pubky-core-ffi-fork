@@ -1,4 +1,5 @@
 mod auth;
+mod grant_resume;
 mod keypair;
 #[cfg(target_os = "android")]
 mod rustls_init;
@@ -1315,6 +1316,7 @@ pub fn start_grant_auth_flow(capabilities_str: String, client_id: String) -> Vec
         };
 
         let auth_url = flow.authorization_url().to_string();
+        grant_resume::remember(&flow);
 
         let mut guard = GRANT_AUTH_FLOW.lock().unwrap();
         *guard = Some(flow);
@@ -1342,7 +1344,7 @@ pub fn await_grant_auth_approval() -> Vec<String> {
             None => return create_response_vector(true, "No auth flow in progress".to_string()),
         };
 
-        match flow.await_approval().await {
+        match grant_resume::await_resuming(flow).await {
             Ok(session) => {
                 let grant_secret = match export_grant_session_secret(&session).await {
                     Ok(secret) => secret,

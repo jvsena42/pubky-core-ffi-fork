@@ -1,0 +1,99 @@
+# The Windows desktop cdylib, which is the one row that cannot be produced anywhere else.
+#
+# `x86_64-pc-windows-msvc` needs the MSVC linker and the Windows SDK, so there is no cross build
+# from the machine the other two rows come off. That makes this workflow the only place the row
+# exists, and the reason the repository has CI at all.
+#
+# **No third-party actions, deliberately.** What this produces is committed into a consumer as a
+# binary blob that a reviewer approves by trust, so every action in the chain is supply-chain
+# surface for that blob. `windows-latest` already ships rustup and a stable toolchain, so the
+# toolchain needs no action; `checkout` and `upload-artifact` are first-party.
+name: Desktop (Windows)
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build_desktop.sh'
+      - '.github/workflows/desktop-windows.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  win32-x86-64:
+    name: win32-x86-64/pubkycore.dll
+    runs-on: windows-latest
+    # Git Bash, which is what `build_desktop.sh` expects to find when it checks `uname -s`. One
+    # recipe for every row rather than a `.ps1` sibling that would drift from the others.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Build
+        run: ./build_desktop.sh windows
+
+      # **The assertion the build cannot make for itself.** A Rust MSVC cdylib links the VC runtime
+      # dynamically by default, and `vcruntime140.dll` is not part of Windows — it arrives with the
+      # Visual C++ redistributable, which *this runner has*. So a DLL that would fail to load on a
+      # clean machine loads perfectly here, and the build is green either way.
+      #
+      # `+crt-static` in the build script is what removes the dependency; this is what proves it was
+      # removed. Import names sit in the PE import directory as plain ASCII, so scanning the bytes
+      # needs neither `dumpbin` (a Visual Studio dev environment) nor a third-party action to set
+      # one up. `MSVC` on its own would false-positive on embedded toolchain paths; these two exact
+      # DLL names do not appear in one.
+      - name: It needs no Visual C++ redistributable
+        run: |
+          python - <<'PY'
+          import sys
+          dll = "bindings/desktop/win32-x86-64/pubkycore.dll"
+          data = open(dll, "rb").read().lower()
+          found = [n for n in (b"vcruntime140", b"msvcp140") if n in data]
+          print(f"{dll}: {len(data)} bytes")
+          if found:
+              names = ", ".join(n.decode() for n in found)
+              # ASCII only, deliberately: Python's stdio on Windows is frequently cp1252, and a
+              # non-ASCII character here would raise UnicodeEncodeError instead of printing the
+              # diagnosis -- on the one path where the diagnosis is the point.
+              sys.exit(f"::error::the DLL imports {names}, so it needs the VC++ redistributable, "
+                       f"which is not part of Windows. Is -C target-feature=+crt-static still set?")
+          print("no VC++ runtime imports")
+          PY
+
+      # That it loads at all, which is a different question from what it imports: this resolves
+      # every import and runs the DLL's entry point. It cannot catch the redistributable problem —
+      # see above — so it is the second check rather than the only one.
+      - name: It loads
+        run: |
+          python - <<'PY'
+          import ctypes, os
+          dll = os.path.abspath("bindings/desktop/win32-x86-64/pubkycore.dll")
+          ctypes.WinDLL(dll)
+          print("loaded")
+          PY
+
+      # The artifact is downloaded and committed in a second step rather than by this job: a
+      # workflow that writes a binary back into the repository is a workflow that can be made to
+      # commit one, and this one runs on pull requests.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pubkycore-win32-x86-64
+          path: bindings/desktop/win32-x86-64/pubkycore.dll
+          if-no-files-found: error

@@ -59,6 +59,29 @@ coordinating a migration across those apps.
 ./build.sh python
 ```
 
+### To build the desktop cdylibs:
+```
+./build.sh desktop            # every row this host can produce
+./build.sh desktop linux      # x86_64-unknown-linux-gnu
+./build.sh desktop macos      # aarch64-apple-darwin, Apple Silicon only
+./build.sh desktop windows    # x86_64-pc-windows-msvc, on Windows under Git Bash
+```
+
+These are for JVM consumers that load the crate through JNA, and they land under
+`bindings/desktop/` in JNA's own resource layout so that `Native.load("pubkycore")` works from
+inside a jar with no install step:
+
+| Row | Artifact |
+| --- | --- |
+| Linux x86_64 | `linux-x86-64/libpubkycore.so` |
+| macOS, Apple Silicon | `darwin-aarch64/libpubkycore.dylib` |
+| Windows x86_64 | `win32-x86-64/pubkycore.dll` — no `lib` prefix, because JNA does not expect one |
+
+Windows is built by CI and nowhere else: the MSVC target needs the Microsoft linker and the Windows
+SDK, so unlike the Linux row there is no container that can cross-build it. See
+`.github/workflows/desktop-windows.yml`, which also asserts the DLL needs no Visual C++
+redistributable — a check the build itself cannot make, since the runner has one installed.
+
 ## Run Tests:
 ```
 cargo test -- --test-threads=1

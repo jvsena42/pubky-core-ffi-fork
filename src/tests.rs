@@ -9,6 +9,38 @@ mod tests {
     const HOMESERVER: &str = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
     const CLIENT_ID: &str = "pubky-core-ffi.test";
 
+    #[derive(Debug)]
+    struct Layer(String, Option<Box<Layer>>);
+
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for Layer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.1.as_deref().map(|e| e as _)
+        }
+    }
+
+    /// The cause a caller classifies on (a proxy refusing the tunnel) sits at the bottom of the
+    /// chain, and pubky's own errors already embed the layer below them, so a naive walk repeats.
+    #[test]
+    fn test_full_error_chain_reaches_the_cause_without_repeating_a_layer() {
+        let root = Layer("tunnel error: unsuccessful".into(), None);
+        let connect = Layer("client error (Connect)".into(), Some(Box::new(root)));
+        let send = Layer("error sending request".into(), Some(Box::new(connect)));
+        let pubky = Layer(
+            "HTTP transport error: error sending request".into(),
+            Some(Box::new(send)),
+        );
+        assert_eq!(
+            full_error_chain(&pubky),
+            "HTTP transport error: error sending request: client error (Connect): tunnel error: unsuccessful"
+        );
+    }
+
     fn get_test_setup() -> (Keypair, String, String) {
         let keypair = generate_keypair();
         let secret_key = hex::encode(keypair.secret_key());

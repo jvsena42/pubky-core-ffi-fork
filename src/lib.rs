@@ -86,11 +86,32 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
         .tls_backend_preconfigured(relay_tls_config_without_revocation_check())
         .build()?;
     let mut builder = PubkyHttpClient::builder();
-    builder.pkarr(|pkarr| pkarr.reqwest_client(relay_http));
+    let relays_only = proxy_configured(|name| std::env::var(name).ok());
+    builder.pkarr(|pkarr| {
+        let pkarr = pkarr.reqwest_client(relay_http);
+        if relays_only {
+            pkarr.no_dht()
+        } else {
+            pkarr
+        }
+    });
     if use_testnet {
         builder.testnet();
     }
     Ok(Pubky::with_client(builder.build()?))
+}
+
+/// Whether reqwest will send HTTPS through a proxy, read from the same variables it reads.
+///
+/// Behind an HTTP proxy the DHT's UDP has nowhere to go, and all it does is log "Could not
+/// bootstrap the routing table" at ERROR every two seconds — onto the stderr of every CLI command.
+/// The relays carry resolution and publishing alone, as they do in a browser — so a proxy that
+/// does not pass them now fails a lookup the DHT might have answered; `NO_PROXY` covering the
+/// relays still reaches them directly.
+fn proxy_configured(var: impl Fn(&str) -> Option<String>) -> bool {
+    ["https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"]
+        .iter()
+        .any(|name| var(name).is_some_and(|value| !value.trim().is_empty()))
 }
 
 /// Panics carry the same weight as the `Pubky::new().unwrap()` they replace: without a transport

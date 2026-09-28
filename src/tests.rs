@@ -41,6 +41,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_proxy_configured_reads_the_variables_reqwest_reads() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert!(proxy_configured(env(&[(
+            "HTTPS_PROXY",
+            "http://proxy:3128"
+        )])));
+        assert!(proxy_configured(env(&[(
+            "https_proxy",
+            "http://proxy:3128"
+        )])));
+        assert!(proxy_configured(env(&[("ALL_PROXY", "http://proxy:3128")])));
+        // A plain-http proxy never carries the relays, which are https.
+        assert!(!proxy_configured(env(&[(
+            "HTTP_PROXY",
+            "http://proxy:3128"
+        )])));
+        assert!(!proxy_configured(env(&[("HTTPS_PROXY", "  ")])));
+        assert!(!proxy_configured(env(&[])));
+    }
+
     fn get_test_setup() -> (Keypair, String, String) {
         let keypair = generate_keypair();
         let secret_key = hex::encode(keypair.secret_key());

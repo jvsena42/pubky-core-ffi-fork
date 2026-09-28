@@ -303,7 +303,10 @@ pub fn delete_file(url: String, secret_key: String, client_id: String) -> Vec<St
         let session = match signer.signin(client_id).await {
             Ok(session) => session,
             Err(error) => {
-                return create_response_vector(true, format!("Failed to sign in: {}", error))
+                return create_response_vector(
+                    true,
+                    format!("Failed to sign in: {}", full_error_chain(&error)),
+                )
             }
         };
 
@@ -317,7 +320,10 @@ pub fn delete_file(url: String, secret_key: String, client_id: String) -> Vec<St
 
         match session.storage().delete(path).await {
             Ok(_) => create_response_vector(false, "Deleted successfully".to_string()),
-            Err(error) => create_response_vector(true, format!("Failed to delete: {}", error)),
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to delete: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -410,7 +416,9 @@ pub fn publish_https(record_name: String, target: String, secret_key: String) ->
         };
         match client.client().pkarr().publish(&signed_packet).await {
             Ok(_) => create_response_vector(false, keypair.public_key().z32()),
-            Err(e) => create_response_vector(true, format!("Failed to publish: {}", e)),
+            Err(e) => {
+                create_response_vector(true, format!("Failed to publish: {}", full_error_chain(&e)))
+            }
         }
     })
 }
@@ -491,7 +499,10 @@ pub fn resolve_https(public_key: String) -> Vec<String> {
 
                 create_response_vector(false, json_str)
             }
-            Err(e) => create_response_vector(true, format!("No signed packet found: {}", e)),
+            Err(e) => create_response_vector(
+                true,
+                format!("No signed packet found: {}", full_error_chain(&e)),
+            ),
         }
     })
 }
@@ -522,16 +533,17 @@ pub fn get_signup_token(homeserver_pubky: String, admin_password: String) -> Vec
             Err(error) => {
                 return create_response_vector(
                     true,
-                    format!("Failed to get signup token: {}", error),
+                    format!("Failed to get signup token: {}", full_error_chain(&error)),
                 )
             }
         };
 
         match response.text().await {
             Ok(signup_token) => create_response_vector(false, signup_token),
-            Err(error) => {
-                create_response_vector(true, format!("Failed to read signup token: {}", error))
-            }
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to read signup token: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -586,7 +598,10 @@ pub fn sign_up_grant(
                     Err(error) => {
                         return create_response_vector(
                             true,
-                            format!("signup succeeded but sign in failed: {}", error),
+                            format!(
+                                "signup succeeded but sign in failed: {}",
+                                full_error_chain(&error)
+                            ),
                         )
                     }
                 };
@@ -597,7 +612,10 @@ pub fn sign_up_grant(
                 let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
                 create_response_vector(false, session_data)
             }
-            Err(error) => create_response_vector(true, format!("signup failure: {}", error)),
+            Err(error) => create_response_vector(
+                true,
+                format!("signup failure: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -640,7 +658,10 @@ pub fn sign_up_cookie(
                 let session_data = session_to_json_with_cookie_secret(&session, &session_secret);
                 create_response_vector(false, session_data)
             }
-            Err(error) => create_response_vector(true, format!("signup failure: {}", error)),
+            Err(error) => create_response_vector(
+                true,
+                format!("signup failure: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -674,9 +695,13 @@ pub fn republish_homeserver(secret_key: String, homeserver: String) -> Vec<Strin
             Ok(_) => {
                 create_response_vector(false, "Homeserver republished successfully".to_string())
             }
-            Err(error) => {
-                create_response_vector(true, format!("Failed to republish homeserver: {}", error))
-            }
+            Err(error) => create_response_vector(
+                true,
+                format!(
+                    "Failed to republish homeserver: {}",
+                    full_error_chain(&error)
+                ),
+            ),
         }
     })
 }
@@ -709,7 +734,10 @@ pub fn sign_in_grant(secret_key: String, client_id: String) -> Vec<String> {
                 let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
                 create_response_vector(false, session_data)
             }
-            Err(error) => create_response_vector(true, format!("Failed to sign in: {}", error)),
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to sign in: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -734,7 +762,10 @@ pub fn sign_in_cookie(secret_key: String) -> Vec<String> {
                 let session_data = session_to_json_with_cookie_secret(&session, &session_secret);
                 create_response_vector(false, session_data)
             }
-            Err(error) => create_response_vector(true, format!("Failed to sign in: {}", error)),
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to sign in: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -754,9 +785,10 @@ pub fn sign_out(session_secret: String) -> Vec<String> {
         // Sign out
         match session.signout().await {
             Ok(_) => create_response_vector(false, "Sign out success".to_string()),
-            Err((error, _)) => {
-                create_response_vector(true, format!("Failed to sign out: {}", error))
-            }
+            Err((error, _)) => create_response_vector(
+                true,
+                format!("Failed to sign out: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -803,9 +835,10 @@ pub fn revalidate_session(session_secret: String) -> Vec<String> {
                     session_cache::SESSION_REJECTED
                 ),
             ),
-            Err(error) => {
-                create_response_vector(true, format!("Failed to revalidate session: {}", error))
-            }
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to revalidate session: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -832,7 +865,10 @@ pub fn put(url: String, content: String, secret_key: String, client_id: String) 
         let session = match signer.signin(client_id).await {
             Ok(session) => session,
             Err(error) => {
-                return create_response_vector(true, format!("Failed to sign in: {}", error))
+                return create_response_vector(
+                    true,
+                    format!("Failed to sign in: {}", full_error_chain(&error)),
+                )
             }
         };
 
@@ -846,7 +882,9 @@ pub fn put(url: String, content: String, secret_key: String, client_id: String) 
 
         match session.storage().put(path, content_bytes).await {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(error) => create_response_vector(true, format!("Failed to put: {}", error)),
+            Err(error) => {
+                create_response_vector(true, format!("Failed to put: {}", full_error_chain(&error)))
+            }
         }
     })
 }
@@ -874,7 +912,10 @@ pub fn put_bytes(
         let session = match signer.signin(client_id).await {
             Ok(session) => session,
             Err(error) => {
-                return create_response_vector(true, format!("Failed to sign in: {}", error))
+                return create_response_vector(
+                    true,
+                    format!("Failed to sign in: {}", full_error_chain(&error)),
+                )
             }
         };
 
@@ -887,7 +928,9 @@ pub fn put_bytes(
 
         match session.storage().put(path, content).await {
             Ok(_) => create_response_vector(false, trimmed_url.to_string()),
-            Err(error) => create_response_vector(true, format!("Failed to put: {}", error)),
+            Err(error) => {
+                create_response_vector(true, format!("Failed to put: {}", full_error_chain(&error)))
+            }
         }
     })
 }
@@ -903,13 +946,21 @@ pub fn get(url: String) -> Vec<String> {
         let public_storage = client.public_storage();
         let response = match public_storage.get(trimmed_url).await {
             Ok(res) => res,
-            Err(e) => return create_response_vector(true, format!("Request failed: {}", e)),
+            Err(e) => {
+                return create_response_vector(
+                    true,
+                    format!("Request failed: {}", full_error_chain(&e)),
+                )
+            }
         };
 
         let bytes = match response.bytes().await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(true, format!("Error reading response: {}", e))
+                return create_response_vector(
+                    true,
+                    format!("Error reading response: {}", full_error_chain(&e)),
+                )
             }
         };
         match str::from_utf8(&bytes) {
@@ -932,13 +983,21 @@ pub fn get_bytes(url: String) -> Vec<String> {
         let public_storage = client.public_storage();
         let response = match public_storage.get(trimmed_url).await {
             Ok(res) => res,
-            Err(e) => return create_response_vector(true, format!("Request failed: {}", e)),
+            Err(e) => {
+                return create_response_vector(
+                    true,
+                    format!("Request failed: {}", full_error_chain(&e)),
+                )
+            }
         };
 
         let bytes = match response.bytes().await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(true, format!("Error reading response: {}", e))
+                return create_response_vector(
+                    true,
+                    format!("Error reading response: {}", full_error_chain(&e)),
+                )
             }
         };
         let base64_str = base64_engine.encode(&bytes);
@@ -1001,7 +1060,10 @@ pub fn resolve(public_key: String) -> Vec<String> {
 
                 create_response_vector(false, json_str)
             }
-            Err(e) => create_response_vector(true, format!("No signed packet found: {}", e)),
+            Err(e) => create_response_vector(
+                true,
+                format!("No signed packet found: {}", full_error_chain(&e)),
+            ),
         }
     })
 }
@@ -1048,7 +1110,10 @@ pub fn publish(record_name: String, record_content: String, secret_key: String) 
         match SignedPacket::new(&keypair, &packet.answers, Timestamp::now()) {
             Ok(signed_packet) => match client.client().pkarr().publish(&signed_packet).await {
                 Ok(_) => create_response_vector(false, keypair.public_key().z32()),
-                Err(e) => create_response_vector(true, format!("Failed to publish: {}", e)),
+                Err(e) => create_response_vector(
+                    true,
+                    format!("Failed to publish: {}", full_error_chain(&e)),
+                ),
             },
             Err(e) => {
                 create_response_vector(true, format!("Failed to create signed packet: {}", e))
@@ -1101,7 +1166,7 @@ pub fn list(
             Err(error) => {
                 return create_response_vector(
                     true,
-                    format!("Failed to send list request: {}", error),
+                    format!("Failed to send list request: {}", full_error_chain(&error)),
                 )
             }
         };
@@ -1122,14 +1187,19 @@ pub fn list(
 ///
 /// reqwest/pubky errors only show their top-level message via `Display` (e.g.
 /// "error sending request for url (...)"), hiding the real cause (TLS/cert, connect,
-/// dns) in the source chain. Walking it surfaces e.g. "...: invalid peer certificate:
-/// NotValidYet", which is what we need to diagnose device-specific transport failures.
-fn full_error_chain<E: std::error::Error>(error: &E) -> String {
+/// dns, a proxy refusing the tunnel) in the source chain. Walking it surfaces e.g. "...: invalid
+/// peer certificate: NotValidYet" or "...: tunnel error: unsuccessful", which is what a caller
+/// needs to tell a refused host from an unreachable one.
+pub(crate) fn full_error_chain<E: std::error::Error>(error: &E) -> String {
     let mut out = error.to_string();
     let mut source = error.source();
     while let Some(e) = source {
-        out.push_str(": ");
-        out.push_str(&e.to_string());
+        // pubky's errors already embed their source's text; repeating it doubles every message.
+        let text = e.to_string();
+        if !out.contains(&text) {
+            out.push_str(": ");
+            out.push_str(&text);
+        }
         source = e.source();
     }
     out
@@ -1241,9 +1311,10 @@ pub fn get_homeserver(pubky: String) -> Vec<String> {
             Ok(None) => {
                 create_response_vector(true, "No homeserver found for this public key".to_string())
             }
-            Err(error) => {
-                create_response_vector(true, format!("Failed to get homeserver: {}", error))
-            }
+            Err(error) => create_response_vector(
+                true,
+                format!("Failed to get homeserver: {}", full_error_chain(&error)),
+            ),
         }
     })
 }
@@ -1311,7 +1382,10 @@ pub fn start_grant_auth_flow(capabilities_str: String, client_id: String) -> Vec
         {
             Ok(flow) => flow,
             Err(e) => {
-                return create_response_vector(true, format!("Failed to start auth flow: {}", e))
+                return create_response_vector(
+                    true,
+                    format!("Failed to start auth flow: {}", full_error_chain(&e)),
+                )
             }
         };
 
@@ -1353,7 +1427,10 @@ pub fn await_grant_auth_approval() -> Vec<String> {
                 let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
                 create_response_vector(false, session_data)
             }
-            Err(e) => create_response_vector(true, format!("Auth approval failed: {}", e)),
+            Err(e) => create_response_vector(
+                true,
+                format!("Auth approval failed: {}", full_error_chain(&e)),
+            ),
         }
     })
 }
@@ -1377,7 +1454,10 @@ pub fn start_cookie_auth_flow(capabilities_str: String) -> Vec<String> {
         {
             Ok(flow) => flow,
             Err(e) => {
-                return create_response_vector(true, format!("Failed to start auth flow: {}", e))
+                return create_response_vector(
+                    true,
+                    format!("Failed to start auth flow: {}", full_error_chain(&e)),
+                )
             }
         };
 
@@ -1414,7 +1494,10 @@ pub fn await_cookie_auth_approval() -> Vec<String> {
                 let session_data = session_to_json_with_cookie_secret(&session, &session_secret);
                 create_response_vector(false, session_data)
             }
-            Err(e) => create_response_vector(true, format!("Auth approval failed: {}", e)),
+            Err(e) => create_response_vector(
+                true,
+                format!("Auth approval failed: {}", full_error_chain(&e)),
+            ),
         }
     })
 }

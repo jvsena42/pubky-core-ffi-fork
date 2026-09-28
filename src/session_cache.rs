@@ -152,7 +152,12 @@ async fn import(secret: &str) -> Result<PubkySession, String> {
         }
         // Classified here, where the typed error still exists. Downstream this is prose.
         Err(error) if is_session_rejected(&error) => Err(rejected(&error, &error)),
-        Err(error) => Err(format!("Failed to import session: {}", error)),
+        // Every `*_with_session` call imports first, so this is where a proxy refusing the
+        // homeserver surfaces for a write — its cause is only in the source chain.
+        Err(error) => Err(format!(
+            "Failed to import session: {}",
+            crate::full_error_chain(&error)
+        )),
     }
 }
 

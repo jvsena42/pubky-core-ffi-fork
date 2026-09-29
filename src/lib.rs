@@ -41,7 +41,7 @@ use tokio::time;
 /// TLS config for pkarr's **relay** HTTP client: bundled webpki roots, certificate revocation
 /// checking off.
 ///
-/// This is the same treatment pubky 0.10 gives its own ICANN client in
+/// This is the same treatment pubky gives its own ICANN client in
 /// `icann_tls_config_without_revocation_check`, applied to the one client that upgrade does not
 /// reach. pkarr builds its relay client from reqwest's defaults, which on Android means
 /// rustls-platform-verifier — and that verifier hard-fails revocation:
@@ -235,6 +235,7 @@ async fn export_grant_session_secret(session: &PubkySession) -> Result<String, S
         .ok_or_else(|| "Session secret is unavailable for this session type".to_string())
 }
 
+#[allow(deprecated)]
 fn export_cookie_session_secret(session: &PubkySession) -> Result<String, String> {
     session
         .as_cookie()

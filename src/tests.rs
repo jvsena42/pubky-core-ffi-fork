@@ -69,6 +69,60 @@ mod tests {
         assert!(!proxy_configured(env(&[])));
     }
 
+    const TEST_CA: &str = include_str!("test_certs/ca.pem");
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("pubkycore-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The same variables and layering as loopky's `CertificateEnvironment`: a file, then every
+    /// file in each directory entry, with duplicates and non-certificate sections dropped.
+    #[test]
+    fn test_env_certificates_reads_the_file_and_every_directory_entry() {
+        let dir = scratch_dir("env-roots");
+        let bundle = dir.join("bundle.pem");
+        std::fs::write(
+            &bundle,
+            format!("# a comment\n{TEST_CA}-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----\n"),
+        )
+        .unwrap();
+        let certs = dir.join("certs");
+        std::fs::create_dir(&certs).unwrap();
+        std::fs::write(certs.join("proxy.pem"), TEST_CA).unwrap();
+
+        let file = bundle.to_str().unwrap().to_string();
+        let dirs = format!("{}:/nonexistent", certs.to_str().unwrap());
+        let found = env_roots::env_certificates(|name| match name {
+            "SSL_CERT_FILE" => Some(file.clone()),
+            "SSL_CERT_DIR" => Some(dirs.clone()),
+            _ => None,
+        });
+        assert_eq!(found.len(), 1, "the CA appears twice and must be kept once");
+        assert!(env_roots::env_certificates(|_| None).is_empty());
+        assert!(env_roots::env_certificates(|name| (name == "SSL_CERT_FILE")
+            .then(|| "/nonexistent/bundle.pem".to_string()))
+        .is_empty());
+    }
+
+    #[test]
+    fn test_one_unusable_certificate_does_not_cost_the_rest() {
+        use rustls::pki_types::pem::PemObject;
+        use rustls::pki_types::CertificateDer;
+
+        let ca = CertificateDer::from_pem_slice(TEST_CA.as_bytes()).unwrap();
+        let junk = CertificateDer::from(vec![0u8]);
+        let kept = env_roots::usable(vec![junk, ca.clone()]);
+        assert_eq!(kept, vec![ca.clone()]);
+
+        let mut builder = PubkyHttpClient::builder();
+        builder
+            .add_root_certificates_pem(env_roots::to_pem(&ca).as_bytes())
+            .expect("a re-encoded certificate is one the SDK accepts");
+    }
+
     fn get_test_setup() -> (Keypair, String, String) {
         let keypair = generate_keypair();
         let secret_key = hex::encode(keypair.secret_key());

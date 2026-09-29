@@ -1,4 +1,5 @@
 mod auth;
+mod env_roots;
 mod grant_resume;
 mod keypair;
 #[cfg(target_os = "android")]
@@ -62,9 +63,15 @@ use tokio::time;
 /// Not gated on `cfg(target_os = "android")`: only Android is broken today, but a config that
 /// differs per platform is one nobody tests, and bundled roots are the right answer everywhere
 /// for a client that ships its own trust anchors.
-fn relay_tls_config_without_revocation_check() -> rustls::ClientConfig {
+///
+/// [extra_roots] are the `SSL_CERT_FILE`/`SSL_CERT_DIR` certificates the SDK's ICANN client also
+/// gets, so a relay behind a TLS-intercepting proxy verifies like everything else (loopky#384).
+fn relay_tls_config_without_revocation_check(
+    extra_roots: &[rustls::pki_types::CertificateDer<'static>],
+) -> rustls::ClientConfig {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    root_store.add_parsable_certificates(extra_roots.iter().cloned());
     let mut tls_config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -82,10 +89,19 @@ fn relay_tls_config_without_revocation_check() -> rustls::ClientConfig {
 /// because the pkarr builder is the only seam that reaches the relay client's TLS.
 fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     Lazy::force(&CRYPTO_PROVIDER);
+    let extra_roots =
+        env_roots::usable(env_roots::env_certificates(|name| std::env::var(name).ok()));
     let relay_http = reqwest::Client::builder()
-        .tls_backend_preconfigured(relay_tls_config_without_revocation_check())
+        .tls_backend_preconfigured(relay_tls_config_without_revocation_check(&extra_roots))
         .build()?;
     let mut builder = PubkyHttpClient::builder();
+    for root in &extra_roots {
+        // Already filtered by `usable`, so a failure here is one the SDK's own check disagrees
+        // on; it costs that one certificate, never the client.
+        if let Err(error) = builder.add_root_certificates_pem(env_roots::to_pem(root).as_bytes()) {
+            tracing::warn!(target: "pubkycore", "ignoring an SSL_CERT_FILE/SSL_CERT_DIR certificate: {error}");
+        }
+    }
     let relays_only = proxy_configured(|name| std::env::var(name).ok());
     builder.pkarr(|pkarr| {
         let pkarr = pkarr.reqwest_client(relay_http);

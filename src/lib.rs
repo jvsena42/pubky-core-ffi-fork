@@ -1,4 +1,5 @@
 mod auth;
+mod cookie_exchange;
 mod env_roots;
 mod grant_resume;
 mod keypair;
@@ -106,7 +107,7 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     builder.pkarr(|pkarr| {
         let pkarr = pkarr.reqwest_client(relay_http);
         if relays_only {
-            pkarr.no_dht()
+            pkarr.no_dht().request_timeout(RELAYS_ONLY_REQUEST_TIMEOUT)
         } else {
             pkarr
         }
@@ -116,6 +117,13 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     }
     Ok(Pubky::with_client(builder.build()?))
 }
+
+/// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
+/// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,
+/// the local DHT query covers that gap; relays-only, a cold key timed out on both relays at once
+/// and failed a sign-in that the very next attempt — the relay having cached it meanwhile —
+/// completed (loopky#389).
+const RELAYS_ONLY_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Whether reqwest will send HTTPS through a proxy, read from the same variables it reads.
 ///
@@ -1523,8 +1531,20 @@ pub fn await_cookie_auth_approval() -> Vec<String> {
             None => return create_response_vector(true, "No auth flow in progress".to_string()),
         };
 
-        match flow.await_approval().await {
-            Ok(session) => {
+        let client = get_pubky_client().client().clone();
+        let homeserver = flow.target_homeserver();
+        let token = match flow.await_token().await {
+            Ok(token) => token,
+            Err(e) => {
+                return create_response_vector(
+                    true,
+                    format!("Auth approval failed: {}", full_error_chain(&e)),
+                )
+            }
+        };
+        match cookie_exchange::exchange(&client, &token, homeserver).await {
+            Ok(credential) => {
+                let session = PubkySession::from_cookie_credential(client, credential);
                 let session_secret = match export_cookie_session_secret(&session) {
                     Ok(secret) => secret,
                     Err(error) => return create_response_vector(true, error),
@@ -1532,10 +1552,7 @@ pub fn await_cookie_auth_approval() -> Vec<String> {
                 let session_data = session_to_json_with_cookie_secret(&session, &session_secret);
                 create_response_vector(false, session_data)
             }
-            Err(e) => create_response_vector(
-                true,
-                format!("Auth approval failed: {}", full_error_chain(&e)),
-            ),
+            Err(error) => create_response_vector(true, format!("Auth approval failed: {error}")),
         }
     })
 }

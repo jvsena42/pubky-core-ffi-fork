@@ -1,4 +1,5 @@
 mod auth;
+mod cookie_exchange;
 mod env_roots;
 mod grant_resume;
 mod keypair;
@@ -1523,8 +1524,20 @@ pub fn await_cookie_auth_approval() -> Vec<String> {
             None => return create_response_vector(true, "No auth flow in progress".to_string()),
         };
 
-        match flow.await_approval().await {
-            Ok(session) => {
+        let client = get_pubky_client().client().clone();
+        let homeserver = flow.target_homeserver();
+        let token = match flow.await_token().await {
+            Ok(token) => token,
+            Err(e) => {
+                return create_response_vector(
+                    true,
+                    format!("Auth approval failed: {}", full_error_chain(&e)),
+                )
+            }
+        };
+        match cookie_exchange::exchange(&client, &token, homeserver).await {
+            Ok(credential) => {
+                let session = PubkySession::from_cookie_credential(client, credential);
                 let session_secret = match export_cookie_session_secret(&session) {
                     Ok(secret) => secret,
                     Err(error) => return create_response_vector(true, error),
@@ -1532,10 +1545,7 @@ pub fn await_cookie_auth_approval() -> Vec<String> {
                 let session_data = session_to_json_with_cookie_secret(&session, &session_secret);
                 create_response_vector(false, session_data)
             }
-            Err(e) => create_response_vector(
-                true,
-                format!("Auth approval failed: {}", full_error_chain(&e)),
-            ),
+            Err(error) => create_response_vector(true, format!("Auth approval failed: {error}")),
         }
     })
 }

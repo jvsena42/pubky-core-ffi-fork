@@ -107,7 +107,7 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     builder.pkarr(|pkarr| {
         let pkarr = pkarr.reqwest_client(relay_http);
         if relays_only {
-            pkarr.no_dht()
+            pkarr.no_dht().request_timeout(RELAYS_ONLY_REQUEST_TIMEOUT)
         } else {
             pkarr
         }
@@ -117,6 +117,13 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     }
     Ok(Pubky::with_client(builder.build()?))
 }
+
+/// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
+/// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,
+/// the local DHT query covers that gap; relays-only, a cold key timed out on both relays at once
+/// and failed a sign-in that the very next attempt — the relay having cached it meanwhile —
+/// completed (loopky#389).
+const RELAYS_ONLY_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Whether reqwest will send HTTPS through a proxy, read from the same variables it reads.
 ///

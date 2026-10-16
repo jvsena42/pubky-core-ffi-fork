@@ -3,6 +3,7 @@
 mod auth;
 mod auth_flow;
 mod binding_error;
+mod body_limit;
 mod cookie_exchange;
 mod env_roots;
 mod events;
@@ -1149,13 +1150,10 @@ pub fn get(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         match str::from_utf8(&bytes) {
@@ -1186,13 +1184,10 @@ pub fn get_bytes(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         let base64_str = base64_engine.encode(&bytes);

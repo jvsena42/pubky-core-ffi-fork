@@ -43,6 +43,14 @@ coordinating a migration across those apps.
 - **Grant management requires a root-capability session.** `list_grants`
   returns the account's active grants and `revoke_grant` revokes a grant by
   id, invalidating all sessions minted from it.
+- **Every request has a deadline, and every body read has a ceiling.** The client is built with
+  a 300s request timeout and a 30s read timeout (pubky's own default is none), so a homeserver
+  that accepts the connection and never answers cannot park the calling thread for good;
+  `configure_client` overrides both. `get`, `get_bytes`, `public_get_bytes` and
+  `session_get_bytes` refuse a body over 50 MiB — on its `Content-Length` before a byte is read,
+  or while reading one that declares nothing — and `configure_max_body_bytes(max_bytes)` sets
+  the limit (returning the one in force; `0` only reads it). The homeserver is whatever the
+  resolved pubky names, so neither number is something a consumer should leave to that host.
 - **New Pubky 0.16 APIs use typed native errors.** Existing functions keep the
   `[error, data]` vector contract. The additive storage, event, lock, client
   configuration, blocking-signin, and advanced Grant-flow APIs return native

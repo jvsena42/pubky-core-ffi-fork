@@ -8,6 +8,7 @@ the same UniFFI surface.
 | Pubky capability | FFI surface |
 | --- | --- |
 | Mainnet/testnet and HTTP configuration | `configure_client`, `switch_network` |
+| Response body ceiling | `configure_max_body_bytes` |
 | Public byte reads | `public_get_bytes` |
 | Public existence and metadata | `public_exists`, `public_stats` |
 | Public pagination | `public_list`, `StorageListOptions`, `StorageListPage` |

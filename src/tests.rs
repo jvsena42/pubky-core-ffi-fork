@@ -1224,6 +1224,98 @@ mod tests {
         assert!(cancel_grant_auth_flow_handle(id)[0] == "false");
     }
 
+    /// A timed-out await must not have replaced the listener: the SDK's listener acks the approval
+    /// before handing it over, so a listener dropped between the two loses it for good.
+    #[test]
+    fn test_a_timed_out_handle_await_keeps_its_listener() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        auth_flow_handles::RESTORES.store(0, Ordering::SeqCst);
+        let (id, _) = start_handle_flow();
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#, "{:?}", waited);
+
+        assert_eq!(
+            auth_flow_handles::RESTORES.load(Ordering::SeqCst),
+            0,
+            "the timeout restored a new listener instead of keeping the one it had"
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
+    /// Two status polls overlapping — a second tab, a reload mid-exchange — is not a failure: the
+    /// second has nothing new to report. Two blocking awaits do conflict, and the second is
+    /// refused. The flow is held the way an in-flight poll holds it.
+    #[test]
+    fn test_a_poll_overlapping_another_answers_pending() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let held = match auth_flow_handles::take(&id) {
+            auth_flow_handles::Taken::Flow { flow, .. } => flow,
+            _ => panic!("the flow is there to be taken"),
+        };
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "poll while busy: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+
+        let awaited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(awaited[0], "true", "await while busy: {:?}", awaited);
+        assert!(
+            awaited[1].contains("already being awaited"),
+            "{}",
+            awaited[1]
+        );
+
+        assert!(auth_flow_handles::give_back(&id, held));
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[1], r#"{"status":"pending"}"#, "{:?}", polled);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
+    /// Expiry is decided on every call, not only when a `start` happens to sweep: a caller still
+    /// polling an expired id is told so once, and the flow — listener and key material — is gone
+    /// with that answer. A cancel sweeps the others too.
+    #[test]
+    fn test_polling_an_expired_handle_flow_says_so_once() {
+        let _lock = handle_flow_lock();
+        let (stale, _) = start_handle_flow();
+        let (other, _) = start_handle_flow();
+        // Shortened after the starts: a start sweeps too, and would take `stale` first.
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(stale.clone());
+        assert_eq!(polled[0], "false", "poll past the TTL: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"expired"}"#);
+        let gone = poll_grant_auth_flow_handle(stale);
+        assert_eq!(gone[0], "true");
+        assert!(gone[1].contains("No auth flow with id"), "{}", gone[1]);
+
+        // `other` was swept by that poll, not by a start.
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+        let awaited = await_grant_auth_flow_handle(other.clone(), 1);
+        assert_eq!(awaited[0], "true", "{:?}", awaited);
+
+        assert_eq!(configure_grant_auth_flows(4, 300)[0], "false");
+        let (third, _) = start_handle_flow();
+        let (fourth, _) = start_handle_flow();
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert_eq!(
+            cancel_grant_auth_flow_handle(third)[0],
+            "true",
+            "an expired flow is swept before the cancel looks for it"
+        );
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            0,
+            "a cancel sweeps expired flows, {fourth} included"
+        );
+    }
+
     /// Every pending flow holds a relay channel and a `PoP` key, so there is a ceiling, and a
     /// flow nobody approved within the relay's window is swept rather than kept forever.
     #[test]
@@ -1257,7 +1349,9 @@ mod tests {
         );
         let gone = poll_grant_auth_flow_handle(stale);
         assert_eq!(gone[0], "true");
-        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "false");
+        // That poll swept `fresh` as well — under a zero TTL every call is a sweep.
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "true");
     }
 
     #[test]

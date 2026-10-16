@@ -44,14 +44,20 @@ coordinating a migration across those apps.
   (loopky#214) uses the id-addressed grant flows instead of the process-wide slot:
   `start_grant_auth_flow_handle(capabilities, client_id, relay)` returns
   `{"flow_id", "authorization_url"}`; `poll_grant_auth_flow_handle(flow_id)` never blocks and
-  answers `{"status": "pending"}` or `{"status": "approved", "session": {…}}`, where `session` is
-  the same object `await_grant_auth_approval` returns (`grant_secret` included);
-  `await_grant_auth_flow_handle(flow_id, timeout_secs)` blocks for at most `timeout_secs` and
-  answers the same two shapes, a timeout being `pending` with the flow kept; and
-  `cancel_grant_auth_flow_handle(flow_id)` drops one. An approval is handed out **once** — the
-  flow is removed with it, as it is on failure, cancellation and expiry. Pending flows are
-  capped (64) and swept after a TTL (300s, the relay's hold); `configure_grant_auth_flows(max,
-  ttl_secs)` changes both. The old slot-based functions are unchanged.
+  answers `{"status": "pending"}`, `{"status": "expired"}` or `{"status": "approved", "session":
+  {…}}`, where `session` is the same object `await_grant_auth_approval` returns (`grant_secret`
+  included); `await_grant_auth_flow_handle(flow_id, timeout_secs)` blocks for at most
+  `timeout_secs` and answers the same three shapes, a timeout being `pending` with the flow kept —
+  its listener included, since dropping one can lose an approval the relay has already handed
+  over; and `cancel_grant_auth_flow_handle(flow_id)` drops one. An approval is handed out
+  **once** — the flow is removed with it, as it is on failure, cancellation and expiry — and so is
+  `expired`: the next call for that id is told there is no such flow. A poll that overlaps
+  another poll or an await on the same flow answers `pending` (there is nothing new to report;
+  a second *await* is refused, since two blocking waiters do conflict). Pending flows are capped
+  (64) and swept after a TTL (300s, the relay's hold) on every call, not only `start`;
+  `configure_grant_auth_flows(max, ttl_secs)` changes both. The cap is one budget for the whole
+  process, so a host serving many callers must rate-limit `start_grant_auth_flow_handle` per
+  caller itself. The old slot-based functions are unchanged.
 - **The session cache is an LRU with single-flight minting.** `*_with_session` calls reuse the
   imported session per secret; `configure_session_cache(capacity)` sets how many are kept
   (default 4, for a phone). Overflow evicts the least recently used session only. Two concurrent

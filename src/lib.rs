@@ -1065,7 +1065,9 @@ pub fn revoke_own_grant(session_secret: String) -> Vec<String> {
 // ---- grant auth flows with an id -------------------------------------------------------------
 
 /// Bound the flows kept pending at once, and how long each is kept. `ttl_secs` should not
-/// exceed what the relay holds an approval for (about five minutes).
+/// exceed what the relay holds an approval for (about five minutes). The cap is one budget for
+/// the whole process; a host serving many callers rate-limits `start_grant_auth_flow_handle` per
+/// caller itself, or one caller can fill it.
 #[uniffi::export]
 pub fn configure_grant_auth_flows(max_concurrent: u32, ttl_secs: u32) -> Vec<String> {
     let (max_flows, ttl) = auth_flow_handles::configure(
@@ -1109,6 +1111,7 @@ pub fn start_grant_auth_flow_handle(
 async fn flow_outcome_json(outcome: auth_flow_handles::Outcome) -> Result<String, String> {
     match outcome {
         auth_flow_handles::Outcome::Pending => Ok(json!({ "status": "pending" }).to_string()),
+        auth_flow_handles::Outcome::Expired => Ok(json!({ "status": "expired" }).to_string()),
         auth_flow_handles::Outcome::Approved(session) => {
             let grant_secret = export_grant_session_secret(&session).await?;
             let session_json = session_to_json_with_grant_secret(&session, &grant_secret).await?;
@@ -1119,9 +1122,11 @@ async fn flow_outcome_json(outcome: auth_flow_handles::Outcome) -> Result<String
     }
 }
 
-/// One non-blocking look at a flow: `{"status":"pending"}`, or `{"status":"approved",
-/// "session": {…}}` with the same session object `await_grant_auth_approval` returns. An
-/// approval ends the flow, so it is returned exactly once.
+/// One non-blocking look at a flow: `{"status":"pending"}`, `{"status":"expired"}`, or
+/// `{"status":"approved", "session": {…}}` with the same session object
+/// `await_grant_auth_approval` returns. An approval ends the flow, so it is returned exactly
+/// once; so does `expired`, after which the id is unknown. A poll that overlaps another poll or an
+/// await on the same flow answers `pending`.
 #[uniffi::export]
 pub fn poll_grant_auth_flow_handle(flow_id: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();

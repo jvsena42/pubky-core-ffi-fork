@@ -10,7 +10,10 @@
 //! does, so an approval is handed out **once**: the second poll for an approved id is told there
 //! is no such flow. Pending flows are capped, because each one holds a relay channel and the PoP
 //! key for a session that does not exist yet, and swept once they are older than the relay keeps
-//! an approval for.
+//! an approval for. The sweep runs on every entry point, not only `start`: with no new sign-ins
+//! a `start`-only sweep never runs, and an abandoned flow would keep its listener long-polling
+//! the relay and its key material in memory indefinitely. The cap is one budget for the whole
+//! process, so a host serving many callers rate-limits `start` per caller itself.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -71,7 +74,13 @@ fn limits() -> MutexGuard<'static, Limits> {
 pub enum Outcome {
     Pending,
     Approved(PubkySession),
+    /// Older than the TTL, so no longer approvable; the flow is removed with this answer.
+    Expired,
 }
+
+/// How often a bounded await looks at its listener's channel. The listener itself long-polls the
+/// relay; this only decides how quickly an approval it received is noticed.
+const AWAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 pub fn configure(max_flows: usize, ttl: Duration) -> (usize, Duration) {
     let mut limits = limits();
@@ -85,10 +94,15 @@ pub(crate) fn pending_count() -> usize {
     flows().len()
 }
 
-/// Drop every flow older than the TTL that is not inside an await. One that is gets its chance
-/// when the await returns: the restore it attempts on timeout refuses an expired flow.
+/// Drop every flow older than the TTL that is not inside a poll or an await. One that is gets its
+/// chance when that call returns: it checks the TTL itself before putting the flow back.
 fn evict_expired(flows: &mut HashMap<String, FlowEntry>, ttl: Duration) {
     flows.retain(|_, entry| entry.flow.is_none() || entry.started.elapsed() <= ttl);
+}
+
+fn sweep() {
+    let ttl = limits().ttl;
+    evict_expired(&mut flows(), ttl);
 }
 
 fn new_id() -> String {
@@ -152,23 +166,55 @@ pub fn start(
     Ok((id, authorization_url))
 }
 
-/// The flow and what an await needs beside it. Fails for an unknown id and for one whose flow
-/// another call is currently holding.
-fn take(id: &str) -> Result<(PubkyGrantAuthFlow, Option<PendingGrantFlow>, Arc<Notify>), String> {
+/// The flow and what a poll or an await needs beside it.
+pub(crate) enum Taken {
+    Flow {
+        flow: PubkyGrantAuthFlow,
+        pending: Option<PendingGrantFlow>,
+        cancelled: Arc<Notify>,
+        started: Instant,
+    },
+    /// Another poll or await holds the flow right now.
+    Busy,
+    /// Older than the TTL. Removed here, with its listener.
+    Expired,
+    Unknown,
+}
+
+/// Take `id`'s flow out of the map, sweeping expired flows on the way, so that every entry point
+/// pays for the sweep and not only `start`.
+pub(crate) fn take(id: &str) -> Taken {
+    let ttl = limits().ttl;
     let mut flows = flows();
-    let entry = flows
-        .get_mut(id)
-        .ok_or_else(|| format!("No auth flow with id {id}"))?;
-    let flow = entry
-        .flow
-        .take()
-        .ok_or_else(|| format!("Auth flow {id} is already being awaited"))?;
-    Ok((flow, entry.pending.clone(), entry.cancelled.clone()))
+    // This id first, so a caller still polling an expired flow is told `Expired` once rather
+    // than finding it already swept; the others after.
+    let taken = match flows.get_mut(id) {
+        None => Taken::Unknown,
+        Some(entry) if entry.started.elapsed() > ttl => {
+            flows.remove(id);
+            Taken::Expired
+        }
+        Some(entry) => match entry.flow.take() {
+            Some(flow) => Taken::Flow {
+                flow,
+                pending: entry.pending.clone(),
+                cancelled: entry.cancelled.clone(),
+                started: entry.started,
+            },
+            None => Taken::Busy,
+        },
+    };
+    evict_expired(&mut flows, ttl);
+    taken
+}
+
+fn unknown(id: &str) -> String {
+    format!("No auth flow with id {id}")
 }
 
 /// Put a flow back, unless the entry was cancelled meanwhile — then the flow is dropped here,
 /// which aborts its listener.
-fn give_back(id: &str, flow: PubkyGrantAuthFlow) -> bool {
+pub(crate) fn give_back(id: &str, flow: PubkyGrantAuthFlow) -> bool {
     let mut flows = flows();
     match flows.get_mut(id) {
         Some(entry) => {
@@ -187,12 +233,17 @@ fn expired(started: Instant) -> bool {
     started.elapsed() > limits().ttl
 }
 
+#[cfg(test)]
+pub(crate) static RESTORES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A new listener on the same channel, for a flow whose previous one is gone.
 fn restored(id: &str, pending: Option<&PendingGrantFlow>) -> Result<PubkyGrantAuthFlow, String> {
     let pending = pending.ok_or_else(|| format!("Auth flow {id} cannot be resumed"))?;
     if expired(pending.started) {
         return Err(format!("Auth flow {id} expired before it was approved"));
     }
+    #[cfg(test)]
+    RESTORES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     grant_resume::restore(pending).map_err(|error| {
         format!(
             "Failed to rejoin the relay channel for auth flow {id}: {}",
@@ -221,8 +272,18 @@ fn rejoined(id: &str, pending: Option<&PendingGrantFlow>) -> Result<Outcome, Str
 
 /// One non-blocking look at the relay. An approval ends the flow; anything else leaves it
 /// pollable, a dead listener included — that one is rejoined on the spot.
+///
+/// A poll that finds the flow in another poll's or await's hands has nothing new to report and
+/// says `Pending`: an approved poll is not short (the grant exchange is in it), the `[error, msg]`
+/// contract cannot express "try again", and a host that reads any error as the sign-in failing
+/// would drop a flow its other poll is about to complete (loopky#214).
 pub async fn poll(id: &str) -> Result<Outcome, String> {
-    let (flow, pending, _) = take(id)?;
+    let (flow, pending) = match take(id) {
+        Taken::Flow { flow, pending, .. } => (flow, pending),
+        Taken::Busy => return Ok(Outcome::Pending),
+        Taken::Expired => return Ok(Outcome::Expired),
+        Taken::Unknown => return Err(unknown(id)),
+    };
     match flow.try_poll_once().await {
         Ok(Some(session)) => {
             remove(id);
@@ -252,34 +313,79 @@ pub async fn poll(id: &str) -> Result<Outcome, String> {
     }
 }
 
-/// Wait up to `timeout` for the approval, rejoining the relay channel if its poll dies the way
-/// `await_grant_auth_approval` does. A timeout leaves the flow pending — it is restored from its
-/// saved state, since dropping the future dropped the listener — so a caller may wait again.
+/// Wait up to `timeout` for the approval, rejoining the relay channel if its listener dies the
+/// way `await_grant_auth_approval` does. A timeout leaves the flow pending, so a caller may wait
+/// again. Two awaits on one flow genuinely conflict, and the second is refused.
+///
+/// **The listener is never dropped on a timeout.** The SDK's listener acks the approval (a DELETE
+/// on the relay inbox) before it hands it over, and dropping it aborts that task; a timeout that
+/// lands between the two would leave a restored listener waiting on an inbox the relay has already
+/// emptied, and a user who approved once never signed in. So the deadline is kept here, by
+/// looking at the listener's channel until it passes, and the *same* flow goes back into the map.
 pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, String> {
-    let (flow, pending, cancelled) = take(id)?;
-    let waiting = tokio::time::timeout(
-        timeout,
-        grant_resume::await_with(flow, pending.clone(), &|_| true, &|_| {}),
-    );
-    tokio::select! {
-        result = waiting => match result {
-            Ok(Ok(session)) => {
+    let (mut flow, pending, cancelled, started) = match take(id) {
+        Taken::Flow {
+            flow,
+            pending,
+            cancelled,
+            started,
+        } => (flow, pending, cancelled, started),
+        Taken::Busy => return Err(format!("Auth flow {id} is already being awaited")),
+        Taken::Expired => return Ok(Outcome::Expired),
+        Taken::Unknown => return Err(unknown(id)),
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match flow.try_poll_once().await {
+            Ok(Some(session)) => {
                 remove(id);
-                Ok(Outcome::Approved(session))
+                return Ok(Outcome::Approved(session));
             }
-            Ok(Err(error)) => {
+            Ok(None) => {}
+            Err(error)
+                if pending.as_ref().is_some_and(|p| {
+                    grant_resume::is_relay_transport_failure(&error, &p.relay)
+                }) =>
+            {
+                flow = match restored(id, pending.as_ref()) {
+                    Ok(flow) => flow,
+                    Err(message) => {
+                        remove(id);
+                        return Err(message);
+                    }
+                };
+            }
+            Err(error) => {
                 remove(id);
-                Err(format!("Auth approval failed: {}", full_error_chain(&error)))
+                return Err(format!(
+                    "Auth approval failed: {}",
+                    full_error_chain(&error)
+                ));
             }
-            Err(_elapsed) => rejoined(id, pending.as_ref()),
-        },
-        // Dropping `waiting` aborts the listener; `cancel` already removed the entry.
-        () = cancelled.notified() => Err(format!("Auth flow {id} was cancelled")),
+        }
+        if expired(started) {
+            remove(id);
+            return Ok(Outcome::Expired);
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return if give_back(id, flow) {
+                Ok(Outcome::Pending)
+            } else {
+                Err(format!("Auth flow {id} was cancelled"))
+            };
+        }
+        tokio::select! {
+            () = tokio::time::sleep(AWAIT_POLL_INTERVAL.min(deadline - now)) => {}
+            // `cancel` already removed the entry; returning drops the flow and its listener.
+            () = cancelled.notified() => return Err(format!("Auth flow {id} was cancelled")),
+        }
     }
 }
 
 /// Forget the flow and stop its listener. An await blocked on it returns cancelled.
 pub fn cancel(id: &str) -> bool {
+    sweep();
     let entry = flows().remove(id);
     match entry {
         Some(entry) => {

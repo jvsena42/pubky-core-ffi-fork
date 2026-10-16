@@ -1013,4 +1013,21 @@ mod tests {
             "state is dropped once the flow completes"
         );
     }
+
+    #[test]
+    fn test_configure_session_cache_reports_what_it_keeps() {
+        assert_eq!(
+            configure_session_cache(32),
+            vec![
+                "false".to_string(),
+                "Session cache keeps 32 sessions".to_string()
+            ]
+        );
+        assert_eq!(
+            configure_session_cache(0)[1],
+            "Session cache keeps 1 sessions",
+            "zero would mint on every call"
+        );
+        configure_session_cache(session_cache::DEFAULT_CAPACITY as u32);
+    }
 }

@@ -973,6 +973,17 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
     })
 }
 
+// ---- session cache ---------------------------------------------------------------------------
+
+/// How many imported sessions to keep. A phone needs the default; a process serving many
+/// identities sets it to the number it expects to serve at once, because a session that has been
+/// evicted costs a grant exchange to get back.
+#[uniffi::export]
+pub fn configure_session_cache(capacity: u32) -> Vec<String> {
+    let capacity = session_cache::configure(capacity as usize);
+    create_response_vector(false, format!("Session cache keeps {capacity} sessions"))
+}
+
 #[uniffi::export]
 pub fn revalidate_session(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();

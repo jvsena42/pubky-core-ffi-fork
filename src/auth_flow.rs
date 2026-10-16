@@ -1,6 +1,6 @@
 use crate::{
     export_cookie_session_secret, export_grant_session_secret, get_keypair_from_secret_key,
-    get_pubky_http_client, parse_client_id, session_to_json_with_cookie_secret,
+    get_pubky_http_client, grant_resume, parse_client_id, session_to_json_with_cookie_secret,
     session_to_json_with_grant_secret, GrantApprovalMode, GrantAuthFlowConfig,
     GrantAuthFlowStateRecord, PubkyCoreError, GRANT_AUTH_FLOW, TOKIO_RUNTIME,
 };
@@ -102,7 +102,7 @@ pub fn start_grant_auth_flow_with_config(
 
     let flow = builder.start()?;
     let state = state_record(&flow)?;
-    *GRANT_AUTH_FLOW.lock().unwrap() = Some(flow);
+    replace_flow(flow);
     Ok(state)
 }
 
@@ -128,7 +128,7 @@ pub fn restore_grant_auth_flow(state: GrantAuthFlowStateRecord) -> Result<String
     };
     let flow = PubkyGrantAuthFlow::restore(state, get_pubky_http_client())?;
     let authorization_url = flow.authorization_url().to_string();
-    *GRANT_AUTH_FLOW.lock().unwrap() = Some(flow);
+    replace_flow(flow);
     Ok(authorization_url)
 }
 
@@ -146,6 +146,9 @@ pub fn poll_grant_auth_flow() -> Result<Option<String>, PubkyCoreError> {
 
         match flow.try_poll_once().await {
             Ok(Some(session)) => {
+                // The flow is over: the resume state saved by `start_grant_auth_flow` holds its
+                // `PoP` key and relay secret, and nothing will read it again.
+                grant_resume::clear();
                 let json = session_json(&session).await?;
                 Ok(Some(json))
             }
@@ -171,14 +174,26 @@ pub fn await_grant_auth_flow() -> Result<String, PubkyCoreError> {
             .ok_or_else(|| PubkyCoreError::State {
                 details: "No Grant auth flow is in progress".to_string(),
             })?;
-        let session = flow.await_approval().await?;
-        session_json(&session).await
+        // The flow is consumed either way — on an error it is dropped with its listener — so the
+        // saved resume state is dead on every exit, as it is in `await_grant_auth_approval`.
+        let approval = flow.await_approval().await;
+        grant_resume::clear();
+        session_json(&approval?).await
     })
 }
 
+/// Cancel drops the flow *and* what `start_grant_auth_flow` saved for resuming it: the `PoP`
+/// client key and the relay URL with its secret must not outlive a sign-in nobody is waiting for.
 #[uniffi::export]
 pub fn cancel_grant_auth_flow() {
     *GRANT_AUTH_FLOW.lock().unwrap() = None;
+    grant_resume::clear();
+}
+
+/// Put `flow` in the slot. Whatever was there is ended by that, so its resume state goes with it.
+fn replace_flow(flow: PubkyGrantAuthFlow) {
+    grant_resume::clear();
+    *GRANT_AUTH_FLOW.lock().unwrap() = Some(flow);
 }
 
 #[uniffi::export]

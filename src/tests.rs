@@ -966,6 +966,58 @@ mod tests {
         drop(GRANT_AUTH_FLOW.lock().unwrap().take());
     }
 
+    /// The resume state holds the flow's `PoP` key and the relay secret. A cancelled sign-in must
+    /// not leave them behind until the next start, and a loop still resuming it must stop.
+    #[test]
+    fn test_cancelling_a_grant_flow_drops_its_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        let pending = grant_resume::current().expect("a local grant flow is remembered");
+        assert!(grant_resume::is_current(pending.generation));
+
+        auth_flow::cancel_grant_auth_flow();
+
+        assert!(GRANT_AUTH_FLOW.lock().unwrap().is_none());
+        assert!(grant_resume::current().is_none());
+        assert!(
+            !grant_resume::is_current(pending.generation),
+            "a resume loop for the cancelled flow must stop at its next boundary"
+        );
+    }
+
+    /// Starting a flow through the typed API replaces whatever was in the slot, so the state saved
+    /// for resuming the replaced flow is dead with it.
+    #[test]
+    fn test_replacing_the_grant_flow_drops_the_previous_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        assert!(grant_resume::current().is_some());
+
+        auth_flow::start_grant_auth_flow_with_config(GrantAuthFlowConfig {
+            capabilities: "/pub/pubky-core-ffi.test/:rw".to_string(),
+            client_id: CLIENT_ID.to_string(),
+            ..GrantAuthFlowConfig::default()
+        })
+        .expect("a typed flow starts without network work");
+
+        assert!(grant_resume::current().is_none());
+        auth_flow::cancel_grant_auth_flow();
+    }
+
     /// The premise of the resume, against the real relay and homeserver: a flow rejoined after its
     /// listener died still collects an approval posted while nobody was polling. Needs a signer
     /// registered on its homeserver, as `PUBKY_TEST_SIGNER_MNEMONIC`.

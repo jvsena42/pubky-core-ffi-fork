@@ -7,6 +7,10 @@
 //! so the flow died before the signer had approved, and the approval then landed in an inbox
 //! nobody was reading. [`PubkyGrantAuthFlow::restore`] rejoins the *same* channel once the name
 //! resolves again, which collects that approval without the user having to approve twice.
+//!
+//! The global slot (`remember`/`current`/`forget`) serves `await_grant_auth_approval`; flows with
+//! their own id (`auth_flow_handles`) carry their [`PendingGrantFlow`] themselves and share the
+//! loop through [`await_with`].
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -44,25 +48,30 @@ pub(crate) struct PendingGrantFlow {
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 static PENDING: Lazy<Mutex<Option<PendingGrantFlow>>> = Lazy::new(|| Mutex::new(None));
 
-/// Record a just-started flow. Bumping the generation is what stops a resume loop still running
-/// for an earlier sign-in: it checks [`is_current`] before every restore.
-pub(crate) fn remember(flow: &PubkyGrantAuthFlow) {
-    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+/// The restorable state of `flow`, or `None` for one whose signer cannot be exported.
+pub(crate) fn pending_for(
+    flow: &PubkyGrantAuthFlow,
+    generation: u64,
+    started: Instant,
+) -> Option<PendingGrantFlow> {
     let relay = flow
         .authorization_url()
         .query_pairs()
         .find(|(key, _)| key == "relay")
-        .map(|(_, value)| value.into_owned());
-    let pending = match (flow.save_local(), relay) {
-        (Some(state), Some(relay)) => Some(PendingGrantFlow {
-            generation,
-            state,
-            relay,
-            started: Instant::now(),
-        }),
-        _ => None,
-    };
-    *PENDING.lock().unwrap() = pending;
+        .map(|(_, value)| value.into_owned())?;
+    Some(PendingGrantFlow {
+        generation,
+        state: flow.save_local()?,
+        relay,
+        started,
+    })
+}
+
+/// Record a just-started flow in the global slot. Bumping the generation is what stops a resume
+/// loop still running for an earlier sign-in: it checks [`is_current`] before every restore.
+pub(crate) fn remember(flow: &PubkyGrantAuthFlow) {
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    *PENDING.lock().unwrap() = pending_for(flow, generation, Instant::now());
 }
 
 pub(crate) fn current() -> Option<PendingGrantFlow> {
@@ -118,12 +127,24 @@ pub(crate) fn resume_delay(
     Some(Duration::from_secs(1 << quick_failures.min(3)).min(MAX_BACKOFF))
 }
 
-/// [`PubkyGrantAuthFlow::await_approval`], rejoining the same relay channel whenever the poll dies
-/// at the transport level.
-pub(crate) async fn await_resuming(mut flow: PubkyGrantAuthFlow) -> pubky::Result<PubkySession> {
+/// [`PubkyGrantAuthFlow::await_approval`] for the flow in the global slot, rejoining the same
+/// relay channel whenever the poll dies at the transport level.
+pub(crate) async fn await_resuming(flow: PubkyGrantAuthFlow) -> pubky::Result<PubkySession> {
     // Resume only the flow we were handed: a remembered state for any other URL is not ours.
     let flow_url = flow.authorization_url().to_string();
     let pending = current().filter(|p| p.state.authorization_url == flow_url);
+    await_with(flow, pending, &is_current, &forget).await
+}
+
+/// The resume loop. `pending` is what a restore needs (`None` disables resuming);
+/// `still_wanted` is asked before every restore and `done` told once the flow ends, both with
+/// the pending state's generation.
+pub(crate) async fn await_with(
+    mut flow: PubkyGrantAuthFlow,
+    pending: Option<PendingGrantFlow>,
+    still_wanted: &dyn Fn(u64) -> bool,
+    done: &dyn Fn(u64),
+) -> pubky::Result<PubkySession> {
     let mut listening_since = pending.as_ref().map_or_else(Instant::now, |p| p.started);
     let mut quick_failures = 0;
     let mut outage_since: Option<Instant> = None;
@@ -132,7 +153,7 @@ pub(crate) async fn await_resuming(mut flow: PubkyGrantAuthFlow) -> pubky::Resul
         let error = match flow.await_approval().await {
             Ok(session) => {
                 if let Some(p) = &pending {
-                    forget(p.generation);
+                    done(p.generation);
                 }
                 return Ok(session);
             }
@@ -141,8 +162,8 @@ pub(crate) async fn await_resuming(mut flow: PubkyGrantAuthFlow) -> pubky::Resul
         let Some(p) = pending.as_ref() else {
             return Err(error);
         };
-        if !is_relay_transport_failure(&error, &p.relay) || !is_current(p.generation) {
-            forget(p.generation);
+        if !is_relay_transport_failure(&error, &p.relay) || !still_wanted(p.generation) {
+            done(p.generation);
             return Err(error);
         }
 
@@ -155,7 +176,7 @@ pub(crate) async fn await_resuming(mut flow: PubkyGrantAuthFlow) -> pubky::Resul
         }
         let outage = outage_since.map_or(Duration::ZERO, |since| since.elapsed());
         let Some(delay) = resume_delay(quick_failures, outage, p.started.elapsed()) else {
-            forget(p.generation);
+            done(p.generation);
             return Err(error);
         };
         tracing::warn!(
@@ -164,13 +185,13 @@ pub(crate) async fn await_resuming(mut flow: PubkyGrantAuthFlow) -> pubky::Resul
         );
         tokio::time::sleep(delay).await;
 
-        if !is_current(p.generation) {
+        if !still_wanted(p.generation) {
             return Err(error);
         }
         flow = match restore(p) {
             Ok(restored) => restored,
             Err(restore_error) => {
-                forget(p.generation);
+                done(p.generation);
                 return Err(restore_error);
             }
         };

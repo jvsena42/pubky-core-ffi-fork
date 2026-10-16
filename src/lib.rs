@@ -2,6 +2,7 @@
 
 mod auth;
 mod auth_flow;
+mod auth_flow_handles;
 mod binding_error;
 mod cookie_exchange;
 mod env_roots;
@@ -982,6 +983,109 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
 pub fn configure_session_cache(capacity: u32) -> Vec<String> {
     let capacity = session_cache::configure(capacity as usize);
     create_response_vector(false, format!("Session cache keeps {capacity} sessions"))
+}
+
+// ---- grant auth flows with an id -------------------------------------------------------------
+
+/// Bound the flows kept pending at once, and how long each is kept. `ttl_secs` should not
+/// exceed what the relay holds an approval for (about five minutes).
+#[uniffi::export]
+pub fn configure_grant_auth_flows(max_concurrent: u32, ttl_secs: u32) -> Vec<String> {
+    let (max_flows, ttl) = auth_flow_handles::configure(
+        max_concurrent as usize,
+        Duration::from_secs(u64::from(ttl_secs)),
+    );
+    create_response_vector(
+        false,
+        format!(
+            "Keeping at most {max_flows} pending auth flows for {}s each",
+            ttl.as_secs()
+        ),
+    )
+}
+
+/// Start a grant sign-in that is addressed by id rather than through the process-wide slot.
+///
+/// Returns `{"flow_id", "authorization_url"}`. `relay` overrides the SDK's default relay.
+#[uniffi::export]
+pub fn start_grant_auth_flow_handle(
+    capabilities_str: String,
+    client_id: String,
+    relay: Option<String>,
+) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    // The relay listener is spawned on start, which needs a runtime on the current thread.
+    let _guard = runtime.enter();
+    match auth_flow_handles::start(&capabilities_str, &client_id, relay.as_deref()) {
+        Ok((flow_id, authorization_url)) => create_response_vector(
+            false,
+            json!({
+                "flow_id": flow_id,
+                "authorization_url": authorization_url,
+            })
+            .to_string(),
+        ),
+        Err(message) => create_response_vector(true, message),
+    }
+}
+
+async fn flow_outcome_json(outcome: auth_flow_handles::Outcome) -> Result<String, String> {
+    match outcome {
+        auth_flow_handles::Outcome::Pending => Ok(json!({ "status": "pending" }).to_string()),
+        auth_flow_handles::Outcome::Approved(session) => {
+            let grant_secret = export_grant_session_secret(&session).await?;
+            let session_json = session_to_json_with_grant_secret(&session, &grant_secret).await?;
+            let session: serde_json::Value = serde_json::from_str(&session_json)
+                .map_err(|error| format!("Failed to serialize session: {error}"))?;
+            Ok(json!({ "status": "approved", "session": session }).to_string())
+        }
+    }
+}
+
+/// One non-blocking look at a flow: `{"status":"pending"}`, or `{"status":"approved",
+/// "session": {…}}` with the same session object `await_grant_auth_approval` returns. An
+/// approval ends the flow, so it is returned exactly once.
+#[uniffi::export]
+pub fn poll_grant_auth_flow_handle(flow_id: String) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let outcome = match auth_flow_handles::poll(&flow_id).await {
+            Ok(outcome) => outcome,
+            Err(message) => return create_response_vector(true, message),
+        };
+        match flow_outcome_json(outcome).await {
+            Ok(json) => create_response_vector(false, json),
+            Err(message) => create_response_vector(true, message),
+        }
+    })
+}
+
+/// Block for up to `timeout_secs` on a flow. Same shapes as the poll: a timeout answers
+/// `pending` and leaves the flow waiting, so the caller may block on it again.
+#[uniffi::export]
+pub fn await_grant_auth_flow_handle(flow_id: String, timeout_secs: u32) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let timeout = Duration::from_secs(u64::from(timeout_secs));
+        let outcome = match auth_flow_handles::await_approval(&flow_id, timeout).await {
+            Ok(outcome) => outcome,
+            Err(message) => return create_response_vector(true, message),
+        };
+        match flow_outcome_json(outcome).await {
+            Ok(json) => create_response_vector(false, json),
+            Err(message) => create_response_vector(true, message),
+        }
+    })
+}
+
+/// Drop a flow and stop listening on its relay channel. An await blocked on it returns.
+#[uniffi::export]
+pub fn cancel_grant_auth_flow_handle(flow_id: String) -> Vec<String> {
+    if auth_flow_handles::cancel(&flow_id) {
+        create_response_vector(false, "Auth flow cancelled".to_string())
+    } else {
+        create_response_vector(true, format!("No auth flow with id {flow_id}"))
+    }
 }
 
 #[uniffi::export]

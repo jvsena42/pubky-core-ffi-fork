@@ -1030,4 +1030,208 @@ mod tests {
         );
         configure_session_cache(session_cache::DEFAULT_CAPACITY as u32);
     }
+    // --- grant auth flows with an id ------------------------------------------------------------
+
+    static HANDLE_FLOW_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The handle tests share one process-wide flow map and its limits.
+    fn handle_flow_lock() -> std::sync::MutexGuard<'static, ()> {
+        let guard = HANDLE_FLOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        auth_flow_handles::reset_for_tests();
+        guard
+    }
+
+    fn start_handle_flow() -> (String, String) {
+        let started = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(started[0], "false", "start: {:?}", started);
+        let json: serde_json::Value = serde_json::from_str(&started[1]).unwrap();
+        (
+            json["flow_id"].as_str().expect("flow_id").to_string(),
+            json["authorization_url"]
+                .as_str()
+                .expect("authorization_url")
+                .to_string(),
+        )
+    }
+
+    /// The reason the handles exist: two sign-ins at once are two flows, not one replacing the
+    /// other. The global slot is left alone.
+    #[test]
+    fn test_two_handle_flows_run_side_by_side() {
+        let _lock = handle_flow_lock();
+        let _global = auth_flow_lock();
+        let (first, first_url) = start_handle_flow();
+        let (second, second_url) = start_handle_flow();
+        assert_ne!(first, second);
+        assert_ne!(first_url, second_url);
+        assert!(first_url.starts_with("pubkyauth://"), "{first_url}");
+        assert_eq!(auth_flow_handles::pending_count(), 2);
+        assert!(
+            grant_resume::current().is_none(),
+            "a handle flow must not touch the global slot"
+        );
+        assert!(GRANT_AUTH_FLOW.lock().unwrap().is_none());
+
+        for id in [&first, &second] {
+            let polled = poll_grant_auth_flow_handle(id.clone());
+            assert_eq!(polled[0], "false", "poll: {:?}", polled);
+            assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        }
+
+        assert_eq!(cancel_grant_auth_flow_handle(first.clone())[0], "false");
+        let gone = poll_grant_auth_flow_handle(first.clone());
+        assert_eq!(gone[0], "true");
+        assert!(gone[1].contains("No auth flow with id"), "{}", gone[1]);
+        assert_eq!(cancel_grant_auth_flow_handle(first)[0], "true");
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(second)[0], "false");
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// A bounded await that times out leaves the flow where it was: still pending, still
+    /// pollable, and still able to collect an approval posted after the timeout.
+    #[test]
+    fn test_a_timed_out_handle_await_keeps_the_flow_pending() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let started = std::time::Instant::now();
+        let waited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#);
+        assert!(started.elapsed() >= std::time::Duration::from_secs(1));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "poll after timeout: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        assert!(cancel_grant_auth_flow_handle(id)[0] == "false");
+    }
+
+    /// Every pending flow holds a relay channel and a `PoP` key, so there is a ceiling, and a
+    /// flow nobody approved within the relay's window is swept rather than kept forever.
+    #[test]
+    fn test_handle_flows_are_capped_and_expire() {
+        let _lock = handle_flow_lock();
+        assert_eq!(configure_grant_auth_flows(1, 300)[0], "false");
+        let (first, _) = start_handle_flow();
+        let refused = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(refused[0], "true");
+        assert!(
+            refused[1].contains("Too many pending auth flows"),
+            "{}",
+            refused[1]
+        );
+        assert_eq!(cancel_grant_auth_flow_handle(first)[0], "false");
+
+        // A zero TTL makes every flow expired on the next sweep, which a start performs.
+        assert_eq!(configure_grant_auth_flows(1, 0)[0], "false");
+        let (stale, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let (fresh, _) = start_handle_flow();
+        assert_ne!(stale, fresh);
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            1,
+            "the stale flow was swept"
+        );
+        let gone = poll_grant_auth_flow_handle(stale);
+        assert_eq!(gone[0], "true");
+        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "false");
+    }
+
+    #[test]
+    fn test_handle_flow_rejects_bad_inputs_before_opening_a_channel() {
+        let _lock = handle_flow_lock();
+        let bad_caps = start_grant_auth_flow_handle(
+            "not-a-capability".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(bad_caps[0], "true");
+        assert!(
+            bad_caps[1].starts_with("Invalid capabilities"),
+            "{}",
+            bad_caps[1]
+        );
+
+        let bad_relay = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            Some("not a url".to_string()),
+        );
+        assert_eq!(bad_relay[0], "true");
+        assert!(
+            bad_relay[1].starts_with("Invalid relay URL"),
+            "{}",
+            bad_relay[1]
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+
+        let unknown = await_grant_auth_flow_handle("nope".to_string(), 1);
+        assert_eq!(unknown[0], "true");
+        assert!(
+            unknown[1].contains("No auth flow with id nope"),
+            "{}",
+            unknown[1]
+        );
+    }
+
+    /// The whole loop against the real relay and homeserver: a signer approves a handle flow's
+    /// URL, the poll hands the session out once, and the session can write.
+    #[test]
+    fn test_handle_flow_hands_an_approval_out_exactly_once() {
+        let _lock = handle_flow_lock();
+        let (signer, signer_secret, homeserver) = get_test_setup();
+        if sign_up_for_test(signer_secret.clone(), homeserver).is_none() {
+            return;
+        }
+        let (id, url) = start_handle_flow();
+        assert_eq!(
+            poll_grant_auth_flow_handle(id.clone())[1],
+            r#"{"status":"pending"}"#
+        );
+
+        let approved = auth(url, signer_secret);
+        assert_eq!(approved[0], "false", "signer approval: {:?}", approved);
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 60);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        let json: serde_json::Value = serde_json::from_str(&waited[1]).unwrap();
+        assert_eq!(json["status"], "approved");
+        let session = &json["session"];
+        assert_eq!(session["pubky"], signer.public_key().z32());
+        assert_eq!(session["client_id"], CLIENT_ID);
+        let grant_secret = session["grant_secret"]
+            .as_str()
+            .expect("grant_secret")
+            .to_string();
+        assert!(session["grant_id"].as_str().is_some());
+
+        let again = poll_grant_auth_flow_handle(id);
+        assert_eq!(
+            again[0], "true",
+            "an approval is handed out once: {:?}",
+            again
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+
+        let url = format!(
+            "pubky://{}/pub/pubky-core-ffi.test/handle-flow",
+            signer.public_key().z32()
+        );
+        let written = put_with_session(url, "via handle flow".to_string(), grant_secret.clone());
+        assert_eq!(written[0], "false", "write: {:?}", written);
+        assert_eq!(sign_out(grant_secret)[0], "false");
+    }
+
 }

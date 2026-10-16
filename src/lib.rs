@@ -44,8 +44,8 @@ use pubky::pkarr::{dns, SignedPacket};
 use pubky::recovery_file;
 #[allow(deprecated)]
 use pubky::{
-    AuthFlowKind, Capabilities, ClientId, GrantId, GrantManager, Pubky, PubkyCookieAuthFlow,
-    PubkyGrantAuthFlow, PubkyHttpClient, PubkySession, PublicKey,
+    AuthFlowKind, Capabilities, ClientId, GrantCredential, GrantId, GrantManager, Pubky,
+    PubkyCookieAuthFlow, PubkyGrantAuthFlow, PubkyHttpClient, PubkySession, PublicKey,
 };
 use serde_json::json;
 use std::str;
@@ -966,7 +966,10 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
         };
 
         match GrantManager::new(&session).revoke(&grant_id).await {
-            Ok(()) => create_response_vector(false, "Grant revoked".to_string()),
+            Ok(()) => {
+                session_cache::forget_grant(grant_id.as_str()).await;
+                create_response_vector(false, "Grant revoked".to_string())
+            }
             Err(error) => {
                 create_response_vector(true, format!("Failed to revoke grant: {}", error))
             }
@@ -983,6 +986,61 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
 pub fn configure_session_cache(capacity: u32) -> Vec<String> {
     let capacity = session_cache::configure(capacity as usize);
     create_response_vector(false, format!("Session cache keeps {capacity} sessions"))
+}
+
+/// Revoke the grant behind `session_secret` at its homeserver, with nothing but the secret.
+///
+/// For unlinking a stored credential: it needs no bearer, so it works after the last one
+/// expired, and it is the grant that is revoked — every session minted from it dies with it.
+/// The proof is signed from the stored `PoP` key (`DELETE /auth/grant/session`); a homeserver
+/// that predates proof logout is handled by minting one last bearer and signing out with it.
+///
+/// A grant that is already gone — expired, or revoked from the signer — answers with the
+/// [`session_cache::SESSION_REJECTED`] marker, which for an unlink means "nothing left to do".
+#[uniffi::export]
+pub fn revoke_own_grant(session_secret: String) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        // Before the call, not after: whatever the homeserver answers, this secret must not be
+        // handed to another write from the cache.
+        session_cache::forget(&session_secret);
+
+        let credential = match GrantCredential::from_shared_secret(&session_secret) {
+            Ok(credential) => credential,
+            Err(error) => {
+                return create_response_vector(
+                    true,
+                    format!("Not a grant session secret: {}", full_error_chain(&error)),
+                )
+            }
+        };
+        let session = PubkySession::from_grant_credential(get_pubky_http_client(), credential);
+        let error = match session.signout().await {
+            Ok(()) => return create_response_vector(false, "Grant revoked".to_string()),
+            Err((error, _)) => error,
+        };
+        if !session_cache::is_session_rejected(&error) {
+            return create_response_vector(
+                true,
+                format!("Failed to revoke grant: {}", full_error_chain(&error)),
+            );
+        }
+
+        // Either the homeserver only accepts a bearer-authenticated logout, and this session has
+        // never minted one, or the grant is already dead. Minting tells the two apart.
+        let session = match session_cache::refreshed_session(&session_secret).await {
+            Ok(session) => session,
+            Err(message) => return create_response_vector(true, message),
+        };
+        session_cache::forget(&session_secret);
+        match session.signout().await {
+            Ok(()) => create_response_vector(false, "Grant revoked".to_string()),
+            Err((error, _)) => create_response_vector(
+                true,
+                session_cache::SessionOpError::Op(error).into_message("Failed to revoke grant"),
+            ),
+        }
+    })
 }
 
 // ---- grant auth flows with an id -------------------------------------------------------------

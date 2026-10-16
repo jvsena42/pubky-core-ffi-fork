@@ -1014,22 +1014,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_configure_session_cache_reports_what_it_keeps() {
-        assert_eq!(
-            configure_session_cache(32),
-            vec![
-                "false".to_string(),
-                "Session cache keeps 32 sessions".to_string()
-            ]
-        );
-        assert_eq!(
-            configure_session_cache(0)[1],
-            "Session cache keeps 1 sessions",
-            "zero would mint on every call"
-        );
-        configure_session_cache(session_cache::DEFAULT_CAPACITY as u32);
-    }
     // --- grant auth flows with an id ------------------------------------------------------------
 
     static HANDLE_FLOW_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -1231,7 +1215,79 @@ mod tests {
         );
         let written = put_with_session(url, "via handle flow".to_string(), grant_secret.clone());
         assert_eq!(written[0], "false", "write: {:?}", written);
-        assert_eq!(sign_out(grant_secret)[0], "false");
+        assert_eq!(revoke_own_grant(grant_secret)[0], "false");
     }
 
+    // --- revoking a grant from its secret ------------------------------------------------------
+
+    #[test]
+    fn test_revoke_own_grant_needs_a_grant_secret() {
+        let result = revoke_own_grant("not-a-grant-secret".to_string());
+        assert_eq!(result[0], "true");
+        assert!(
+            result[1].starts_with("Not a grant session secret"),
+            "{}",
+            result[1]
+        );
+    }
+
+    #[test]
+    fn test_configure_session_cache_reports_what_it_keeps() {
+        assert_eq!(
+            configure_session_cache(32),
+            vec![
+                "false".to_string(),
+                "Session cache keeps 32 sessions".to_string()
+            ]
+        );
+        assert_eq!(
+            configure_session_cache(0)[1],
+            "Session cache keeps 1 sessions",
+            "zero would mint on every call"
+        );
+        configure_session_cache(session_cache::DEFAULT_CAPACITY as u32);
+    }
+
+    /// An unlink against the real homeserver: the grant is revoked from the secret alone, the
+    /// session is gone from the cache, and the next write with that secret is a rejection —
+    /// not a retry.
+    #[test]
+    fn test_revoke_own_grant_kills_the_sessions_minted_from_it() {
+        let (keypair, secret_key, homeserver) = get_test_setup();
+        let Some(signed_up) = sign_up_for_test(secret_key, homeserver) else {
+            return;
+        };
+        let session: serde_json::Value = serde_json::from_str(&signed_up[1]).unwrap();
+        let grant_secret = session["grant_secret"].as_str().unwrap().to_string();
+        let url = format!(
+            "pubky://{}/pub/pubky-core-ffi.test/revoked",
+            keypair.public_key().z32()
+        );
+        let written = put_with_session(url.clone(), "before".to_string(), grant_secret.clone());
+        assert_eq!(written[0], "false", "write: {:?}", written);
+
+        let revoked = revoke_own_grant(grant_secret.clone());
+        assert_eq!(revoked[0], "false", "revoke: {:?}", revoked);
+        assert_eq!(revoked[1], "Grant revoked");
+
+        let after = put_with_session(url, "after".to_string(), grant_secret.clone());
+        assert_eq!(
+            after[0], "true",
+            "a revoked grant cannot write: {:?}",
+            after
+        );
+        assert!(
+            after[1].starts_with(session_cache::SESSION_REJECTED),
+            "classified as a rejection, not trouble: {}",
+            after[1]
+        );
+
+        let again = revoke_own_grant(grant_secret);
+        assert_eq!(again[0], "true");
+        assert!(
+            again[1].starts_with(session_cache::SESSION_REJECTED),
+            "a second revoke says the grant is already gone: {}",
+            again[1]
+        );
+    }
 }

@@ -67,7 +67,7 @@ coordinating a migration across those apps.
   returns the account's active grants and `revoke_grant` revokes a grant by
   id, invalidating all sessions minted from it.
 - **Every request has a deadline, and every body read has a ceiling.** The client is built with
-  a 300s request timeout and a 30s read timeout (pubky's own default is none), so a homeserver
+  a 300s request timeout and a 120s read timeout (pubky's own default is none), so a homeserver
   that accepts the connection and never answers cannot park the calling thread for good;
   `configure_client` overrides both. `get`, `get_bytes`, `public_get_bytes` and
   `session_get_bytes` refuse a body over 50 MiB — on its `Content-Length` before a byte is read,

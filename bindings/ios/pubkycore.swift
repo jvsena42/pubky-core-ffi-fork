@@ -2398,6 +2398,15 @@ public func configureClient(config: PubkyClientConfig) throws {
 
 
 
+public func configureMaxBodyBytes(maxBytes: UInt64)  -> UInt64 {
+    return try!  FfiConverterUInt64.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_configure_max_body_bytes(
+        FfiConverterUInt64.lower(maxBytes),$0)
+}
+    )
+}
+
 public func createCustomGrantProof(sessionSecret: String, dataJson: String) throws -> CustomGrantProof {
     return try  FfiConverterTypeCustomGrantProof.lift(
         try rustCallWithError(FfiConverterTypePubkyCoreError.lift) {
@@ -3103,6 +3112,9 @@ private var initializationResult: InitializationResult {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_configure_client() != 49656) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_configure_max_body_bytes() != 5303) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343) {

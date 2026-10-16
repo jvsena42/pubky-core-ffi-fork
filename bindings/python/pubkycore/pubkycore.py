@@ -520,6 +520,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_configure_client() != 49656:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_configure_max_body_bytes() != 5303:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_create_recovery_file() != 48846:
@@ -766,6 +768,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_configure_client.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_configure_client.restype = None
+_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes.restype = ctypes.c_uint64
 _UniffiLib.uniffi_pubkycore_fn_func_create_custom_grant_proof.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -1441,6 +1448,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow.restype = ctype
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_client.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_client.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_max_body_bytes.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_max_body_bytes.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_create_custom_grant_proof.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_create_custom_grant_proof.restype = ctypes.c_uint16
@@ -3285,6 +3295,12 @@ def configure_client(config: "PubkyClientConfig"):
         _UniffiConverterTypePubkyClientConfig.lower(config))
 
 
+def configure_max_body_bytes(max_bytes: "int") -> "int":
+    
+    return _UniffiConverterUInt64.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes,
+        _UniffiConverterUInt64.lower(max_bytes)))
+
+
 def create_custom_grant_proof(session_secret: "str",data_json: "str") -> "CustomGrantProof":
     
     
@@ -3818,6 +3834,7 @@ __all__ = [
     "await_grant_auth_flow",
     "cancel_grant_auth_flow",
     "configure_client",
+    "configure_max_body_bytes",
     "create_custom_grant_proof",
     "create_recovery_file",
     "create_tag_id",

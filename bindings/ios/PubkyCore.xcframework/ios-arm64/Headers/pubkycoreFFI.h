@@ -102,6 +102,8 @@ void uniffi_pubkycore_fn_func_cancel_grant_auth_flow(RustCallStatus *_Nonnull ou
 );
 void uniffi_pubkycore_fn_func_configure_client(RustBuffer config, RustCallStatus *_Nonnull out_status
 );
+uint64_t uniffi_pubkycore_fn_func_configure_max_body_bytes(uint64_t max_bytes, RustCallStatus *_Nonnull out_status
+);
 RustBuffer uniffi_pubkycore_fn_func_create_custom_grant_proof(RustBuffer session_secret, RustBuffer data_json, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_create_recovery_file(RustBuffer secret_key, RustBuffer passphrase, RustCallStatus *_Nonnull out_status
@@ -384,6 +386,9 @@ uint16_t uniffi_pubkycore_checksum_func_cancel_grant_auth_flow(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_configure_client(void
+    
+);
+uint16_t uniffi_pubkycore_checksum_func_configure_max_body_bytes(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_create_custom_grant_proof(void

@@ -421,6 +421,8 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun uniffi_pubkycore_fn_func_configure_client(`config`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): Unit
+    fun uniffi_pubkycore_fn_func_configure_max_body_bytes(`maxBytes`: Long,_uniffi_out_err: RustCallStatus, 
+    ): Long
     fun uniffi_pubkycore_fn_func_create_custom_grant_proof(`sessionSecret`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_create_recovery_file(`secretKey`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -689,6 +691,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_pubkycore_checksum_func_configure_client(
     ): Short
+    fun uniffi_pubkycore_checksum_func_configure_max_body_bytes(
+    ): Short
     fun uniffi_pubkycore_checksum_func_create_custom_grant_proof(
     ): Short
     fun uniffi_pubkycore_checksum_func_create_recovery_file(
@@ -884,6 +888,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_configure_client() != 49656.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_pubkycore_checksum_func_configure_max_body_bytes() != 5303.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343.toShort()) {
@@ -3061,6 +3068,14 @@ fun `configureClient`(`config`: PubkyClientConfig) =
     _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_configure_client(FfiConverterTypePubkyClientConfig.lower(`config`),_status)
 }
 
+
+
+fun `configureMaxBodyBytes`(`maxBytes`: ULong): ULong {
+    return FfiConverterULong.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_configure_max_body_bytes(FfiConverterULong.lower(`maxBytes`),_status)
+})
+}
 
 @Throws(PubkyCoreException::class)
 

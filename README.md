@@ -40,6 +40,29 @@ coordinating a migration across those apps.
   `revalidate_session`, `put_with_session`, and `delete_with_session` call
   `Pubky::restore_session`, so they accept a Grant `grant_secret` or a legacy
   cookie `session_secret`.
+- **Many identities in one process.** A hosted client that signs many users in at once
+  (loopky#214) uses the id-addressed grant flows instead of the process-wide slot:
+  `start_grant_auth_flow_handle(capabilities, client_id, relay)` returns
+  `{"flow_id", "authorization_url"}`; `poll_grant_auth_flow_handle(flow_id)` never blocks and
+  answers `{"status": "pending"}` or `{"status": "approved", "session": {…}}`, where `session` is
+  the same object `await_grant_auth_approval` returns (`grant_secret` included);
+  `await_grant_auth_flow_handle(flow_id, timeout_secs)` blocks for at most `timeout_secs` and
+  answers the same two shapes, a timeout being `pending` with the flow kept; and
+  `cancel_grant_auth_flow_handle(flow_id)` drops one. An approval is handed out **once** — the
+  flow is removed with it, as it is on failure, cancellation and expiry. Pending flows are
+  capped (64) and swept after a TTL (300s, the relay's hold); `configure_grant_auth_flows(max,
+  ttl_secs)` changes both. The old slot-based functions are unchanged.
+- **The session cache is an LRU with single-flight minting.** `*_with_session` calls reuse the
+  imported session per secret; `configure_session_cache(capacity)` sets how many are kept
+  (default 4, for a phone). Overflow evicts the least recently used session only. Two concurrent
+  imports of the same secret — or two re-mints after the same `401` — perform one grant exchange
+  and share it, so they cannot replace each other's bearer.
+- **`revoke_own_grant(session_secret)` revokes a grant from its stored secret alone.** It
+  signs the revocation proof with the secret's `PoP` key (`DELETE /auth/grant/session`), so it
+  works after the last bearer expired and needs no root session; every session minted from the
+  grant dies with it, and the cache forgets it. A grant that is already gone answers with the
+  `Session rejected` marker, which for an unlink means there is nothing left to do. `revoke_grant`
+  (by id, root session) also evicts any cached session minted from that grant.
 - **Grant management requires a root-capability session.** `list_grants`
   returns the account's active grants and `revoke_grant` revokes a grant by
   id, invalidating all sessions minted from it.

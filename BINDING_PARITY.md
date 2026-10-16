@@ -32,6 +32,18 @@ the same UniFFI surface.
 The legacy string-vector APIs remain available unchanged for downstream
 compatibility.
 
+## Fork additions for a multi-identity process (loopky#214)
+
+These keep the legacy `[error, data]` string-vector contract, because the consumer that needs
+them (`UniffiPubkyClient` in loopky) reads nothing else.
+
+| Need | FFI surface |
+| --- | --- |
+| Many grant sign-ins pending at once, each with its own id | `start_grant_auth_flow_handle`, `poll_grant_auth_flow_handle`, `await_grant_auth_flow_handle`, `cancel_grant_auth_flow_handle` |
+| Bounding the pending flows and their lifetime | `configure_grant_auth_flows` |
+| A session per identity, kept across calls | `configure_session_cache` (LRU capacity; minting is single-flight per secret) |
+| Unlinking: revoke a grant from its stored secret, after the bearer expired | `revoke_own_grant` |
+
 ## Intentionally internal Rust primitives
 
 The following are implementation mechanisms rather than missing mobile client

@@ -1490,6 +1490,32 @@ mod tests {
         assert_eq!(poll_grant_auth_flow_handle(dropped)[0], "true");
     }
 
+    /// A relay that refuses every connection kills each restored listener on arrival. The await
+    /// backs off between restores (1, 2, 4 s …) rather than restoring on every 200 ms tick, and
+    /// still leaves a live listener behind when its deadline passes.
+    #[test]
+    fn test_a_handle_await_backs_off_while_the_relay_is_down() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        let relay = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/inbox", listener.local_addr().unwrap())
+        };
+        let id = start_handle_flow_on(&relay);
+        auth_flow_handles::RESTORES.store(0, Ordering::SeqCst);
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 4);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#);
+        let restores = auth_flow_handles::RESTORES.load(Ordering::SeqCst);
+        assert!(
+            (1..=3).contains(&restores),
+            "{restores} restores in 4s: one per tick would be ~20"
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
     #[test]
     fn test_handle_flow_rejects_bad_inputs_before_opening_a_channel() {
         let _lock = handle_flow_lock();

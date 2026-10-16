@@ -357,6 +357,11 @@ pub async fn poll(id: &str) -> Result<Outcome, String> {
 /// lands between the two would leave a restored listener waiting on an inbox the relay has already
 /// emptied, and a user who approved once never signed in. So the deadline is kept here, by
 /// looking at the listener's channel until it passes, and the *same* flow goes back into the map.
+///
+/// A listener that dies on the relay is rejoined with the backoff `await_grant_auth_approval`
+/// uses, so an outage costs each awaiting flow one restore every few seconds rather than one per
+/// tick. There is no give-up short of the TTL: the flow is still approvable once the relay is
+/// back, and the TTL already bounds it.
 pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, String> {
     let (mut flow, pending, cancelled, started) = match take(id) {
         Taken::Flow {
@@ -369,6 +374,8 @@ pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, Stri
         Taken::Unknown => return Err(unknown(id)),
     };
     let deadline = Instant::now() + timeout;
+    let mut listening_since = started;
+    let mut quick_failures: u32 = 0;
     loop {
         match flow.try_poll_once().await {
             Ok(Some(session)) => {
@@ -385,6 +392,24 @@ pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, Stri
                     remove(id);
                     return Ok(Outcome::Expired);
                 }
+                quick_failures = if listening_since.elapsed() < grant_resume::QUICK_FAILURE {
+                    quick_failures.saturating_add(1)
+                } else {
+                    0
+                };
+                // The dead listener's error has been consumed, so it now reads as pending forever:
+                // it is never given back. The backoff is cut short by the deadline, and the restore
+                // still happens before this call returns.
+                let backoff = grant_resume::backoff(quick_failures)
+                    .min(deadline.saturating_duration_since(Instant::now()));
+                tokio::select! {
+                    () = tokio::time::sleep(backoff) => {}
+                    () = cancelled.notified() => return Err(format!("Auth flow {id} was cancelled")),
+                }
+                if expired(started) {
+                    remove(id);
+                    return Ok(Outcome::Expired);
+                }
                 flow = match restored(id, pending.as_ref()) {
                     Ok(flow) => flow,
                     Err(message) => {
@@ -392,6 +417,7 @@ pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, Stri
                         return Err(message);
                     }
                 };
+                listening_since = Instant::now();
             }
             Err(error) => {
                 remove(id);

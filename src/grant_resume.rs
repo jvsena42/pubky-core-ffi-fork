@@ -133,7 +133,13 @@ pub(crate) fn resume_delay(
     if outage >= MAX_OUTAGE || since_start >= RESUME_WINDOW {
         return None;
     }
-    Some(Duration::from_secs(1 << quick_failures.min(3)).min(MAX_BACKOFF))
+    Some(backoff(quick_failures))
+}
+
+/// The wait before a restore after `quick_failures` restores in a row died on arrival:
+/// 1, 2, 4, then 8 seconds.
+pub(crate) fn backoff(quick_failures: u32) -> Duration {
+    Duration::from_secs(1 << quick_failures.min(3)).min(MAX_BACKOFF)
 }
 
 /// [`PubkyGrantAuthFlow::await_approval`] for the flow in the global slot, rejoining the same

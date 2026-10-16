@@ -27,10 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Every binding agrees with the header
+      # Loaded, so the checksum *values* are compared too: a signature change that kept its name
+      # passes the name check and fails here, as it would in JNA at a consumer's first call.
+      - name: Every binding agrees with the Linux row, checksum values included
         run: |
           for binding in bindings/android/pubkycore.kt bindings/ios/pubkycore.swift bindings/python/pubkycore/pubkycore.py; do
-            python3 scripts/check_ffi_exports.py --bindings "$binding" bindings/desktop/linux-x86-64/libpubkycore.so
+            python3 scripts/check_ffi_exports.py --bindings "$binding" --load bindings/desktop/linux-x86-64/libpubkycore.so
           done
 
       - name: Every committed row exports what the header declares
@@ -46,3 +48,30 @@ jobs:
             bindings/android/jniLibs/x86_64/libpubkycore.so \
             bindings/ios/PubkyCore.xcframework/ios-arm64/libpubkycore.a \
             bindings/ios/PubkyCore.xcframework/ios-arm64-simulator/libpubkycore.a
+
+  # The other desktop rows can only be loaded on their own OS. No build here: these load what is
+  # committed. The Android and iOS rows cannot be loaded on any runner and get the name check above.
+  committed-row-values:
+    name: committed ${{ matrix.row }} checksum values match the bindings
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            row: darwin-aarch64
+            python: python3
+            binaries: bindings/desktop/darwin-aarch64/libpubkycore.dylib bindings/python/pubkycore/libpubkycore.dylib
+          - os: windows-latest
+            row: win32-x86-64
+            python: python
+            binaries: bindings/desktop/win32-x86-64/pubkycore.dll
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Loaded, against every binding
+        shell: bash
+        run: |
+          for binding in bindings/android/pubkycore.kt bindings/ios/pubkycore.swift bindings/python/pubkycore/pubkycore.py; do
+            ${{ matrix.python }} scripts/check_ffi_exports.py --bindings "$binding" --load ${{ matrix.binaries }}
+          done

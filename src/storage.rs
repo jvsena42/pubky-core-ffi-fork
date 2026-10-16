@@ -1,6 +1,7 @@
+use crate::body_limit::{self, BodyError};
 use crate::{
-    get_pubky_client, PubkyCoreError, StorageListOptions, StorageListPage, StorageResourceStats,
-    TOKIO_RUNTIME,
+    full_error_chain, get_pubky_client, PubkyCoreError, StorageListOptions, StorageListPage,
+    StorageResourceStats, TOKIO_RUNTIME,
 };
 use pubky::{PubkyResource, PubkySession, ResourcePath, ResourceStats};
 use std::time::UNIX_EPOCH;
@@ -21,6 +22,21 @@ pub(crate) fn session_path(session: &PubkySession, input: &str) -> Result<String
         });
     }
     Ok(resource.path.as_str().to_string())
+}
+
+/// The body under the configured cap (`configure_max_body_bytes`). A refusal is a `Validation`
+/// error rather than a `Transport` one, because a retry would fetch the same body.
+async fn read_body(response: reqwest::Response) -> Result<Vec<u8>, PubkyCoreError> {
+    body_limit::read_capped(response)
+        .await
+        .map_err(|error| match error {
+            BodyError::TooLarge { .. } => PubkyCoreError::Validation {
+                details: error.to_string(),
+            },
+            BodyError::Transport(error) => PubkyCoreError::Transport {
+                details: full_error_chain(&error),
+            },
+        })
 }
 
 fn resource_stats(stats: ResourceStats) -> StorageResourceStats {
@@ -69,7 +85,7 @@ fn list_page(resources: Vec<PubkyResource>) -> StorageListPage {
 pub fn public_get_bytes(address: String) -> Result<Vec<u8>, PubkyCoreError> {
     TOKIO_RUNTIME.block_on(async {
         let response = get_pubky_client().public_storage().get(address).await?;
-        Ok(response.bytes().await?.to_vec())
+        read_body(response).await
     })
 }
 
@@ -113,7 +129,7 @@ pub fn session_get_bytes(
         let session = restore_session(&session_secret).await?;
         let path = session_path(&session, &path_or_address)?;
         let response = session.storage().get(path).await?;
-        Ok(response.bytes().await?.to_vec())
+        read_body(response).await
     })
 }
 

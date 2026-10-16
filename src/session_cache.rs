@@ -115,7 +115,9 @@ impl SessionOpError {
             SessionOpError::Op(error) if is_session_rejected(&error) => {
                 rejected(&error, format_args!("{verb}: {error}"))
             }
-            SessionOpError::Op(error) => format!("{verb}: {error}"),
+            // The full chain, for the same reason `import` walks it: a proxy or TLS refusal on
+            // the operation itself shows nothing but "error sending request" at the top.
+            SessionOpError::Op(error) => format!("{verb}: {}", crate::full_error_chain(&error)),
         }
     }
 }
@@ -363,7 +365,8 @@ pub fn forget(secret: &str) {
 }
 
 /// Drop every cached session minted from `grant_id`. A revoked grant's sessions would otherwise
-/// sit in the cache until their first `401`.
+/// sit in the cache until their first `401` — the root session itself among them, when the grant
+/// it revoked was its own.
 pub async fn forget_grant(grant_id: &str) {
     for (secret, session) in SESSIONS.values() {
         let Some(grant) = session.as_grant() else {

@@ -20,6 +20,7 @@
 set -euo pipefail
 
 OUT_DIR="./bindings/desktop"
+PYTHON_PACKAGE_DIR="./bindings/python/pubkycore"
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
 
@@ -106,6 +107,14 @@ build_macos() {
         "target/aarch64-apple-darwin/release/libpubkycore.dylib" \
         "darwin-aarch64/libpubkycore.dylib" \
         strip
+    # The Python package loads a dylib from its own directory and checks every function's
+    # checksum at import, so a dylib older than `pubkycore.py` fails `import pubkycore` outright.
+    # Same target, same commit: this is the one place the macOS row is built, so it is the one
+    # place that copy can be kept current.
+    if [ -d "$PYTHON_PACKAGE_DIR" ]; then
+        cp "$OUT_DIR/darwin-aarch64/libpubkycore.dylib" "$PYTHON_PACKAGE_DIR/libpubkycore.dylib"
+        echo "  -> $PYTHON_PACKAGE_DIR/libpubkycore.dylib"
+    fi
 }
 
 # --- windows ----------------------------------------------------------------

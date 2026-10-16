@@ -2,10 +2,11 @@ use crate::{
     get_pubky_client, get_pubky_http_client, EventStreamConfig, PubkyCoreError, PubkyStorageEvent,
     TOKIO_RUNTIME,
 };
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use once_cell::sync::Lazy;
 use pubky::{EventCursor, EventStreamBuilder, PublicKey};
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -88,45 +89,74 @@ pub fn start_event_stream(
             builder = builder.session(&session);
         }
 
-        let mut stream = builder.subscribe().await?;
+        let stream = builder.subscribe().await?.map(|result| {
+            result
+                .map(|event| PubkyStorageEvent {
+                    event_type: event.event_type.as_str().to_string(),
+                    resource: event.resource.to_pubky_url(),
+                    cursor: event.cursor.id(),
+                    content_hash: event
+                        .event_type
+                        .content_hash()
+                        .map(|hash| hash.to_hex().to_string()),
+                })
+                .map_err(|error| error.to_string())
+        });
         let listener: Arc<dyn PubkyEventStreamListener> = listener.into();
         let id = format!(
             "event-stream-{}",
             EVENT_STREAM_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         );
         let task_id = id.clone();
-        let task_listener = listener.clone();
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let task = TOKIO_RUNTIME.spawn(async move {
             if start_rx.await.is_err() {
                 return;
             }
-            while let Some(result) = stream.next().await {
-                match result {
-                    Ok(event) => task_listener.on_event(PubkyStorageEvent {
-                        event_type: event.event_type.as_str().to_string(),
-                        resource: event.resource.to_pubky_url(),
-                        cursor: event.cursor.id(),
-                        content_hash: event
-                            .event_type
-                            .content_hash()
-                            .map(|hash| hash.to_hex().to_string()),
-                    }),
-                    Err(error) => {
-                        task_listener.on_error(error.to_string());
-                        EVENT_STREAM_TASKS.lock().unwrap().remove(&task_id);
-                        return;
-                    }
-                }
-            }
-            task_listener.on_complete();
-            EVENT_STREAM_TASKS.lock().unwrap().remove(&task_id);
+            pump(stream, listener, task_id).await;
         });
 
         EVENT_STREAM_TASKS.lock().unwrap().insert(id.clone(), task);
         let _ = start_tx.send(());
         Ok(id)
     })
+}
+
+/// Drops the task's map entry however the task ends. With uniffi 0.25 a foreign listener that
+/// throws *panics* the Rust side, and tokio swallows a panic in a spawned task — so without this
+/// the finished `JoinHandle` stayed in the map and the host believed the stream was still live.
+struct Registered(String);
+
+impl Drop for Registered {
+    fn drop(&mut self) {
+        EVENT_STREAM_TASKS.lock().unwrap().remove(&self.0);
+    }
+}
+
+/// Deliver `stream` to `listener` until it ends, then say so. A listener that throws ends the
+/// stream — it is told why through `on_error`, if it will take that call — and never leaks the
+/// entry under `id`.
+pub(crate) async fn pump<S>(mut stream: S, listener: Arc<dyn PubkyEventStreamListener>, id: String)
+where
+    S: Stream<Item = Result<PubkyStorageEvent, String>> + Unpin,
+{
+    let _registered = Registered(id);
+    while let Some(result) = stream.next().await {
+        let delivery = match result {
+            Ok(event) => catch_unwind(AssertUnwindSafe(|| listener.on_event(event))),
+            Err(error) => {
+                let _ = catch_unwind(AssertUnwindSafe(|| listener.on_error(error)));
+                return;
+            }
+        };
+        if delivery.is_err() {
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                listener.on_error("event listener threw; the stream is stopped".to_string())
+            }));
+            return;
+        }
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| listener.on_complete()));
 }
 
 #[uniffi::export]
@@ -148,4 +178,92 @@ pub fn stop_all_event_streams() -> u64 {
         task.abort();
     }
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Throws from `on_event`, the way a foreign listener's exception arrives on this side.
+    struct Throwing {
+        events: AtomicUsize,
+        errors: Mutex<Vec<String>>,
+        completed: AtomicUsize,
+    }
+
+    impl PubkyEventStreamListener for Throwing {
+        fn on_event(&self, _event: PubkyStorageEvent) {
+            self.events.fetch_add(1, Ordering::SeqCst);
+            panic!("Callback interface failure: the host listener threw");
+        }
+        fn on_error(&self, message: String) {
+            self.errors.lock().unwrap().push(message);
+        }
+        fn on_complete(&self) {
+            self.completed.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn event(cursor: u64) -> PubkyStorageEvent {
+        PubkyStorageEvent {
+            event_type: "PUT".to_string(),
+            resource: "pubky://x/pub/y".to_string(),
+            cursor,
+            content_hash: None,
+        }
+    }
+
+    #[test]
+    fn a_throwing_listener_ends_the_stream_and_frees_its_entry() {
+        let id = "event-stream-test-throwing".to_string();
+        let placeholder = TOKIO_RUNTIME.spawn(std::future::pending::<()>());
+        EVENT_STREAM_TASKS
+            .lock()
+            .unwrap()
+            .insert(id.clone(), placeholder);
+        let listener = Arc::new(Throwing {
+            events: AtomicUsize::new(0),
+            errors: Mutex::new(Vec::new()),
+            completed: AtomicUsize::new(0),
+        });
+        let stream = futures_util::stream::iter(vec![Ok(event(1)), Ok(event(2))]);
+
+        // The panic must not leave `pump`: in production it runs in a spawned task, where it
+        // would be swallowed with the entry still in the map.
+        TOKIO_RUNTIME.block_on(pump(stream, listener.clone(), id.clone()));
+
+        assert_eq!(
+            listener.events.load(Ordering::SeqCst),
+            1,
+            "stopped at the throw"
+        );
+        assert_eq!(listener.completed.load(Ordering::SeqCst), 0);
+        assert_eq!(listener.errors.lock().unwrap().len(), 1);
+        assert!(
+            !EVENT_STREAM_TASKS.lock().unwrap().contains_key(&id),
+            "the entry outlived the task"
+        );
+    }
+
+    #[test]
+    fn a_stream_error_frees_the_entry_too() {
+        let id = "event-stream-test-error".to_string();
+        let placeholder = TOKIO_RUNTIME.spawn(std::future::pending::<()>());
+        EVENT_STREAM_TASKS
+            .lock()
+            .unwrap()
+            .insert(id.clone(), placeholder);
+        let listener = Arc::new(Throwing {
+            events: AtomicUsize::new(0),
+            errors: Mutex::new(Vec::new()),
+            completed: AtomicUsize::new(0),
+        });
+        let stream = futures_util::stream::iter(vec![Err("relay gone".to_string())]);
+
+        TOKIO_RUNTIME.block_on(pump(stream, listener.clone(), id.clone()));
+
+        assert_eq!(listener.errors.lock().unwrap().as_slice(), ["relay gone"]);
+        assert!(!EVENT_STREAM_TASKS.lock().unwrap().contains_key(&id));
+    }
 }

@@ -4,6 +4,7 @@ mod auth;
 mod auth_flow;
 mod auth_flow_handles;
 mod binding_error;
+mod body_limit;
 mod cookie_exchange;
 mod env_roots;
 mod events;
@@ -139,9 +140,22 @@ fn build_pubky_with(
     if use_testnet {
         builder.testnet();
     }
+    // Before `tune`, so `configure_client` overrides both and the untuned client has a deadline.
+    builder
+        .request_timeout(DEFAULT_REQUEST_TIMEOUT)
+        .read_timeout(DEFAULT_READ_TIMEOUT);
     tune(&mut builder)?;
     Ok(Pubky::with_client(builder.build()?))
 }
+
+/// Every export `block_on`s on the caller's thread, and pubky's own default is no deadline at all:
+/// a homeserver that accepts the connection and never answers parked that thread for good, and a
+/// hosted client (loopky#214) reaches every homeserver its tenants choose. The read timeout is
+/// what catches that — it resets on every byte, so a slow body still arrives — and the request
+/// timeout is the backstop for a body that trickles. Both reach the relay long-poll too, where a
+/// timeout is `PollError::Timeout` and just polls again, not a failure.
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
 /// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,
@@ -928,22 +942,21 @@ pub fn sign_out(session_secret: String) -> Vec<String> {
 pub fn list_grants(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
-        };
+        // Through the cache like every other session-secret entry point, so an expired grant
+        // answers with the `SESSION_REJECTED` marker and a refused proxy with its cause.
+        let listing = session_cache::with_session(&session_secret, |session| async move {
+            GrantManager::new(&session).list().await
+        })
+        .await;
 
-        match GrantManager::new(&session).list().await {
+        match listing {
             Ok(grants) => match serde_json::to_string(&grants) {
                 Ok(json) => create_response_vector(false, json),
                 Err(error) => {
                     create_response_vector(true, format!("Failed to serialize grants: {}", error))
                 }
             },
-            Err(error) => create_response_vector(true, format!("Failed to list grants: {}", error)),
+            Err(error) => create_response_vector(true, error.into_message("Failed to list grants")),
         }
     })
 }
@@ -957,21 +970,21 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
 
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
-        };
+        let revocation = session_cache::with_session(&session_secret, |session| {
+            let grant_id = grant_id.clone();
+            async move { GrantManager::new(&session).revoke(&grant_id).await }
+        })
+        .await;
 
-        match GrantManager::new(&session).revoke(&grant_id).await {
+        match revocation {
             Ok(()) => {
+                // Every session minted from that grant is dead now, the caller's own included
+                // when it revoked itself; left cached, the next write would burn a 401 first.
                 session_cache::forget_grant(grant_id.as_str()).await;
                 create_response_vector(false, "Grant revoked".to_string())
             }
             Err(error) => {
-                create_response_vector(true, format!("Failed to revoke grant: {}", error))
+                create_response_vector(true, error.into_message("Failed to revoke grant"))
             }
         }
     })
@@ -1307,13 +1320,10 @@ pub fn get(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         match str::from_utf8(&bytes) {
@@ -1344,13 +1354,10 @@ pub fn get_bytes(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         let base64_str = base64_engine.encode(&bytes);

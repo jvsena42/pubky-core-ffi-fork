@@ -91,6 +91,15 @@ pub(crate) fn forget(generation: u64) {
     }
 }
 
+/// Drop whatever is saved, whichever generation it is: for the paths that end or replace the flow
+/// in the slot without going through [`await_resuming`] — a cancel, a poll that collected the
+/// approval, a restore. Bumping the generation also stops a resume loop still running for it,
+/// which would otherwise keep rejoining a channel nobody is waiting on.
+pub(crate) fn clear() {
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    *PENDING.lock().unwrap() = None;
+}
+
 pub(crate) fn restore(pending: &PendingGrantFlow) -> pubky::Result<PubkyGrantAuthFlow> {
     PubkyGrantAuthFlow::restore(pending.state.clone(), get_pubky_client().client().clone())
 }

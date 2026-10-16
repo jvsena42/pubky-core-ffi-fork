@@ -966,6 +966,133 @@ mod tests {
         drop(GRANT_AUTH_FLOW.lock().unwrap().take());
     }
 
+    /// Accepts the connection and never writes a byte: the homeserver the deadline exists for.
+    async fn silent_server() -> url::Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        url::Url::parse(&format!("http://{address}/")).unwrap()
+    }
+
+    async fn get_from(pubky: &Pubky, url: url::Url) -> Result<reqwest::Response, String> {
+        let request = pubky
+            .client()
+            .request_async(reqwest::Method::GET, url)
+            .await
+            .map_err(|error| full_error_chain(&error))?;
+        request
+            .send()
+            .await
+            .map_err(|error| full_error_chain(&error))
+    }
+
+    /// Every export blocks the caller's thread on the request, so a homeserver that never answers
+    /// used to park that thread for good — pubky's own default is no deadline at all.
+    #[test]
+    fn test_an_untuned_client_gives_up_on_a_homeserver_that_never_answers() {
+        let pubky = build_pubky_with(false, |_| Ok(())).expect("client");
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(
+                DEFAULT_READ_TIMEOUT + Duration::from_secs(15),
+                get_from(&pubky, url),
+            )
+            .await
+        });
+
+        let error = outcome
+            .expect("the default deadline must fire before the test's own")
+            .expect_err("a server that never writes cannot succeed");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+    }
+
+    /// `configure_client` stays the override: its timeouts replace the defaults rather than
+    /// adding to them.
+    #[test]
+    fn test_a_configured_timeout_overrides_the_default_deadline() {
+        let pubky = build_pubky_with(false, |builder| {
+            builder.read_timeout(Duration::from_millis(200));
+            Ok(())
+        })
+        .expect("client");
+        let started = std::time::Instant::now();
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(Duration::from_secs(5), get_from(&pubky, url)).await
+        });
+
+        let error = outcome
+            .expect("the configured deadline fires")
+            .expect_err("never answers");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    /// The resume state holds the flow's `PoP` key and the relay secret. A cancelled sign-in must
+    /// not leave them behind until the next start, and a loop still resuming it must stop.
+    #[test]
+    fn test_cancelling_a_grant_flow_drops_its_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        let pending = grant_resume::current().expect("a local grant flow is remembered");
+        assert!(grant_resume::is_current(pending.generation));
+
+        auth_flow::cancel_grant_auth_flow();
+
+        assert!(GRANT_AUTH_FLOW.lock().unwrap().is_none());
+        assert!(grant_resume::current().is_none());
+        assert!(
+            !grant_resume::is_current(pending.generation),
+            "a resume loop for the cancelled flow must stop at its next boundary"
+        );
+    }
+
+    /// Starting a flow through the typed API replaces whatever was in the slot, so the state saved
+    /// for resuming the replaced flow is dead with it.
+    #[test]
+    fn test_replacing_the_grant_flow_drops_the_previous_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        assert!(grant_resume::current().is_some());
+
+        auth_flow::start_grant_auth_flow_with_config(GrantAuthFlowConfig {
+            capabilities: "/pub/pubky-core-ffi.test/:rw".to_string(),
+            client_id: CLIENT_ID.to_string(),
+            ..GrantAuthFlowConfig::default()
+        })
+        .expect("a typed flow starts without network work");
+
+        assert!(grant_resume::current().is_none());
+        auth_flow::cancel_grant_auth_flow();
+    }
+
     /// The premise of the resume, against the real relay and homeserver: a flow rejoined after its
     /// listener died still collects an approval posted while nobody was polling. Needs a signer
     /// registered on its homeserver, as `PUBKY_TEST_SIGNER_MNEMONIC`.

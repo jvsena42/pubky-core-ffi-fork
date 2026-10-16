@@ -172,6 +172,9 @@ install_artifact() {
     # the same reason.
     if [ -n "$want_strip" ]; then strip -x "$dest" 2>/dev/null || true; fi
     echo "  -> $dest ($(wc -c <"$dest" | tr -d ' ') bytes)"
+    # Against the committed header: a desktop row is built from the same commit the bindings were
+    # generated from, or it is the wrong row. See scripts/check_ffi_exports.py.
+    python3 ./scripts/check_ffi_exports.py --bindings bindings/ios/pubkycoreFFI.h "$dest"
 }
 
 case "${1:-}" in

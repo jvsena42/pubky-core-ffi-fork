@@ -88,6 +88,12 @@ xcodebuild -create-xcframework \
     -output "bindings/ios/PubkyCore.xcframework" \
     || { echo "Failed to create XCFramework"; exit 1; }
 
+# Both slices against the header generated beside them. See scripts/check_ffi_exports.py.
+echo "Checking the slices export what the header declares..."
+python3 ./scripts/check_ffi_exports.py --bindings bindings/ios/pubkycoreFFI.h \
+    bindings/ios/PubkyCore.xcframework/ios-arm64/libpubkycore.a \
+    bindings/ios/PubkyCore.xcframework/ios-arm64-simulator/libpubkycore.a
+
 # Clean up temporary directories
 echo "Cleaning up temporary directories..."
 rm -rf "bindings/ios/ios-arm64"

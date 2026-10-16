@@ -177,6 +177,13 @@ and as `bindings/python/pubkycore/libpubkycore.dylib`, the one the Python module
 fresh build, because the module checks every function's checksum at import — a dylib older than
 `pubkycore.py` fails `import pubkycore` with a missing symbol, and nothing else notices.
 
+**Every row has to export what the bindings resolve, and a merge can quietly break that.** The
+generated bindings name each function (`uniffi_pubkycore_fn_func_*`) and resolve it at load or at
+link, so a binary from another commit — a merge that resolved a row to the other branch's build —
+fails on a consumer's first call and nowhere earlier. `scripts/check_ffi_exports.py` compares a
+binary's exports with a binding's list; every build script runs it on the row it just produced,
+and `.github/workflows/ffi-exports.yml` runs it on every committed row on every pull request.
+
 The Linux row is built inside `rust:1-bullseye` rather than on the host: a cdylib links against
 its builder's glibc, and consumers (loopky's CLI container is `ubuntu:22.04`) need the floor at
 2.34 or below. Check it with

@@ -138,9 +138,22 @@ fn build_pubky_with(
     if use_testnet {
         builder.testnet();
     }
+    // Before `tune`, so `configure_client` overrides both and the untuned client has a deadline.
+    builder
+        .request_timeout(DEFAULT_REQUEST_TIMEOUT)
+        .read_timeout(DEFAULT_READ_TIMEOUT);
     tune(&mut builder)?;
     Ok(Pubky::with_client(builder.build()?))
 }
+
+/// Every export `block_on`s on the caller's thread, and pubky's own default is no deadline at all:
+/// a homeserver that accepts the connection and never answers parked that thread for good, and a
+/// hosted client (loopky#214) reaches every homeserver its tenants choose. The read timeout is
+/// what catches that — it resets on every byte, so a slow body still arrives — and the request
+/// timeout is the backstop for a body that trickles. Both reach the relay long-poll too, where a
+/// timeout is `PollError::Timeout` and just polls again, not a failure.
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
 /// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,

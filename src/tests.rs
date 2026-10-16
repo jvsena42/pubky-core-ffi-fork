@@ -966,6 +966,81 @@ mod tests {
         drop(GRANT_AUTH_FLOW.lock().unwrap().take());
     }
 
+    /// Accepts the connection and never writes a byte: the homeserver the deadline exists for.
+    async fn silent_server() -> url::Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        url::Url::parse(&format!("http://{address}/")).unwrap()
+    }
+
+    async fn get_from(pubky: &Pubky, url: url::Url) -> Result<reqwest::Response, String> {
+        let request = pubky
+            .client()
+            .request_async(reqwest::Method::GET, url)
+            .await
+            .map_err(|error| full_error_chain(&error))?;
+        request
+            .send()
+            .await
+            .map_err(|error| full_error_chain(&error))
+    }
+
+    /// Every export blocks the caller's thread on the request, so a homeserver that never answers
+    /// used to park that thread for good — pubky's own default is no deadline at all.
+    #[test]
+    fn test_an_untuned_client_gives_up_on_a_homeserver_that_never_answers() {
+        let pubky = build_pubky_with(false, |_| Ok(())).expect("client");
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(
+                DEFAULT_READ_TIMEOUT + Duration::from_secs(15),
+                get_from(&pubky, url),
+            )
+            .await
+        });
+
+        let error = outcome
+            .expect("the default deadline must fire before the test's own")
+            .expect_err("a server that never writes cannot succeed");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+    }
+
+    /// `configure_client` stays the override: its timeouts replace the defaults rather than
+    /// adding to them.
+    #[test]
+    fn test_a_configured_timeout_overrides_the_default_deadline() {
+        let pubky = build_pubky_with(false, |builder| {
+            builder.read_timeout(Duration::from_millis(200));
+            Ok(())
+        })
+        .expect("client");
+        let started = std::time::Instant::now();
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(Duration::from_secs(5), get_from(&pubky, url)).await
+        });
+
+        let error = outcome
+            .expect("the configured deadline fires")
+            .expect_err("never answers");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
     /// The resume state holds the flow's `PoP` key and the relay secret. A cancelled sign-in must
     /// not leave them behind until the next start, and a loop still resuming it must stop.
     #[test]

@@ -97,10 +97,18 @@ RustBuffer uniffi_pubkycore_fn_func_await_grant_auth_approval(RustCallStatus *_N
 RustBuffer uniffi_pubkycore_fn_func_await_grant_auth_flow(RustCallStatus *_Nonnull out_status
     
 );
+RustBuffer uniffi_pubkycore_fn_func_await_grant_auth_flow_handle(RustBuffer flow_id, uint32_t timeout_secs, RustCallStatus *_Nonnull out_status
+);
 void uniffi_pubkycore_fn_func_cancel_grant_auth_flow(RustCallStatus *_Nonnull out_status
     
 );
+RustBuffer uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle(RustBuffer flow_id, RustCallStatus *_Nonnull out_status
+);
 void uniffi_pubkycore_fn_func_configure_client(RustBuffer config, RustCallStatus *_Nonnull out_status
+);
+RustBuffer uniffi_pubkycore_fn_func_configure_grant_auth_flows(uint32_t max_concurrent, uint32_t ttl_secs, RustCallStatus *_Nonnull out_status
+);
+RustBuffer uniffi_pubkycore_fn_func_configure_session_cache(uint32_t capacity, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_create_custom_grant_proof(RustBuffer session_secret, RustBuffer data_json, RustCallStatus *_Nonnull out_status
 );
@@ -155,6 +163,8 @@ RustBuffer uniffi_pubkycore_fn_func_parse_deep_link(RustBuffer url, RustCallStat
 RustBuffer uniffi_pubkycore_fn_func_poll_grant_auth_flow(RustCallStatus *_Nonnull out_status
     
 );
+RustBuffer uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle(RustBuffer flow_id, RustCallStatus *_Nonnull out_status
+);
 int8_t uniffi_pubkycore_fn_func_public_exists(RustBuffer address, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_public_get_bytes(RustBuffer address, RustCallStatus *_Nonnull out_status
@@ -189,6 +199,8 @@ RustBuffer uniffi_pubkycore_fn_func_restore_grant_auth_flow(RustBuffer state, Ru
 RustBuffer uniffi_pubkycore_fn_func_revalidate_session(RustBuffer session_secret, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_revoke_grant(RustBuffer session_secret, RustBuffer grant_id, RustCallStatus *_Nonnull out_status
+);
+RustBuffer uniffi_pubkycore_fn_func_revoke_own_grant(RustBuffer session_secret, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_save_grant_auth_flow(RustCallStatus *_Nonnull out_status
     
@@ -234,6 +246,8 @@ RustBuffer uniffi_pubkycore_fn_func_start_cookie_auth_flow(RustBuffer capabiliti
 RustBuffer uniffi_pubkycore_fn_func_start_event_stream(RustBuffer config, uint64_t listener, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_start_grant_auth_flow(RustBuffer capabilities_str, RustBuffer client_id, RustCallStatus *_Nonnull out_status
+);
+RustBuffer uniffi_pubkycore_fn_func_start_grant_auth_flow_handle(RustBuffer capabilities_str, RustBuffer client_id, RustBuffer relay, RustCallStatus *_Nonnull out_status
 );
 RustBuffer uniffi_pubkycore_fn_func_start_grant_auth_flow_with_config(RustBuffer config, RustCallStatus *_Nonnull out_status
 );
@@ -380,10 +394,22 @@ uint16_t uniffi_pubkycore_checksum_func_await_grant_auth_approval(void
 uint16_t uniffi_pubkycore_checksum_func_await_grant_auth_flow(void
     
 );
+uint16_t uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle(void
+    
+);
 uint16_t uniffi_pubkycore_checksum_func_cancel_grant_auth_flow(void
     
 );
+uint16_t uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle(void
+    
+);
 uint16_t uniffi_pubkycore_checksum_func_configure_client(void
+    
+);
+uint16_t uniffi_pubkycore_checksum_func_configure_grant_auth_flows(void
+    
+);
+uint16_t uniffi_pubkycore_checksum_func_configure_session_cache(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_create_custom_grant_proof(void
@@ -458,6 +484,9 @@ uint16_t uniffi_pubkycore_checksum_func_parse_deep_link(void
 uint16_t uniffi_pubkycore_checksum_func_poll_grant_auth_flow(void
     
 );
+uint16_t uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle(void
+    
+);
 uint16_t uniffi_pubkycore_checksum_func_public_exists(void
     
 );
@@ -507,6 +536,9 @@ uint16_t uniffi_pubkycore_checksum_func_revalidate_session(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_revoke_grant(void
+    
+);
+uint16_t uniffi_pubkycore_checksum_func_revoke_own_grant(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_save_grant_auth_flow(void
@@ -573,6 +605,9 @@ uint16_t uniffi_pubkycore_checksum_func_start_event_stream(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_start_grant_auth_flow(void
+    
+);
+uint16_t uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle(void
     
 );
 uint16_t uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config(void

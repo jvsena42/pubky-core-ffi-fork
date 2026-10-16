@@ -310,6 +310,19 @@ fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
     }
 }
 
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -2381,6 +2394,16 @@ public func awaitGrantAuthFlow() throws -> String {
     )
 }
 
+public func awaitGrantAuthFlowHandle(flowId: String, timeoutSecs: UInt32)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_await_grant_auth_flow_handle(
+        FfiConverterString.lower(flowId),
+        FfiConverterUInt32.lower(timeoutSecs),$0)
+}
+    )
+}
+
 public func cancelGrantAuthFlow()  {
     try! rustCall() {
     uniffi_pubkycore_fn_func_cancel_grant_auth_flow($0)
@@ -2388,6 +2411,15 @@ public func cancelGrantAuthFlow()  {
 }
 
 
+
+public func cancelGrantAuthFlowHandle(flowId: String)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle(
+        FfiConverterString.lower(flowId),$0)
+}
+    )
+}
 
 public func configureClient(config: PubkyClientConfig) throws {
     try rustCallWithError(FfiConverterTypePubkyCoreError.lift) {
@@ -2397,6 +2429,25 @@ public func configureClient(config: PubkyClientConfig) throws {
 }
 
 
+
+public func configureGrantAuthFlows(maxConcurrent: UInt32, ttlSecs: UInt32)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_configure_grant_auth_flows(
+        FfiConverterUInt32.lower(maxConcurrent),
+        FfiConverterUInt32.lower(ttlSecs),$0)
+}
+    )
+}
+
+public func configureSessionCache(capacity: UInt32)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_configure_session_cache(
+        FfiConverterUInt32.lower(capacity),$0)
+}
+    )
+}
 
 public func createCustomGrantProof(sessionSecret: String, dataJson: String) throws -> CustomGrantProof {
     return try  FfiConverterTypeCustomGrantProof.lift(
@@ -2622,6 +2673,15 @@ public func pollGrantAuthFlow() throws -> String? {
     )
 }
 
+public func pollGrantAuthFlowHandle(flowId: String)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle(
+        FfiConverterString.lower(flowId),$0)
+}
+    )
+}
+
 public func publicExists(address: String) throws -> Bool {
     return try  FfiConverterBool.lift(
         try rustCallWithError(FfiConverterTypePubkyCoreError.lift) {
@@ -2787,6 +2847,15 @@ public func revokeGrant(sessionSecret: String, grantId: String)  -> [String] {
     uniffi_pubkycore_fn_func_revoke_grant(
         FfiConverterString.lower(sessionSecret),
         FfiConverterString.lower(grantId),$0)
+}
+    )
+}
+
+public func revokeOwnGrant(sessionSecret: String)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_revoke_own_grant(
+        FfiConverterString.lower(sessionSecret),$0)
 }
     )
 }
@@ -3012,6 +3081,17 @@ public func startGrantAuthFlow(capabilitiesStr: String, clientId: String)  -> [S
     )
 }
 
+public func startGrantAuthFlowHandle(capabilitiesStr: String, clientId: String, relay: String?)  -> [String] {
+    return try!  FfiConverterSequenceString.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_start_grant_auth_flow_handle(
+        FfiConverterString.lower(capabilitiesStr),
+        FfiConverterString.lower(clientId),
+        FfiConverterOptionString.lower(relay),$0)
+}
+    )
+}
+
 public func startGrantAuthFlowWithConfig(config: GrantAuthFlowConfig) throws -> GrantAuthFlowStateRecord {
     return try  FfiConverterTypeGrantAuthFlowStateRecord.lift(
         try rustCallWithError(FfiConverterTypePubkyCoreError.lift) {
@@ -3099,10 +3179,22 @@ private var initializationResult: InitializationResult {
     if (uniffi_pubkycore_checksum_func_await_grant_auth_flow() != 25430) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle() != 43474) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_pubkycore_checksum_func_cancel_grant_auth_flow() != 21408) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle() != 27553) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_pubkycore_checksum_func_configure_client() != 49656) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_configure_grant_auth_flows() != 36358) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_configure_session_cache() != 7117) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343) {
@@ -3177,6 +3269,9 @@ private var initializationResult: InitializationResult {
     if (uniffi_pubkycore_checksum_func_poll_grant_auth_flow() != 62466) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle() != 25105) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_pubkycore_checksum_func_public_exists() != 55217) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3226,6 +3321,9 @@ private var initializationResult: InitializationResult {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_revoke_grant() != 15677) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_revoke_own_grant() != 22919) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_save_grant_auth_flow() != 63609) {
@@ -3292,6 +3390,9 @@ private var initializationResult: InitializationResult {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_start_grant_auth_flow() != 48937) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle() != 53487) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config() != 31556) {

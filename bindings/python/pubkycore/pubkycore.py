@@ -516,9 +516,17 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_await_grant_auth_flow() != 25430:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle() != 43474:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow() != 21408:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle() != 27553:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_configure_client() != 49656:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows() != 36358:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_configure_session_cache() != 7117:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -568,6 +576,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow() != 62466:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle() != 25105:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_public_exists() != 55217:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_public_get_bytes() != 37051:
@@ -601,6 +611,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_pubkycore_checksum_func_revalidate_session() != 57726:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_revoke_grant() != 15677:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_revoke_own_grant() != 22919:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_save_grant_auth_flow() != 63609:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -645,6 +657,8 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_pubkycore_checksum_func_start_event_stream() != 33730:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow() != 48937:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle() != 53487:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config() != 31556:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -757,15 +771,37 @@ _UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow_handle.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.c_uint32,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow_handle.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow.restype = None
+_UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_configure_client.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_configure_client.restype = None
+_UniffiLib.uniffi_pubkycore_fn_func_configure_grant_auth_flows.argtypes = (
+    ctypes.c_uint32,
+    ctypes.c_uint32,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_configure_grant_auth_flows.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_configure_session_cache.argtypes = (
+    ctypes.c_uint32,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_configure_session_cache.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_create_custom_grant_proof.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -894,6 +930,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_public_exists.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -995,6 +1036,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_revoke_grant.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_revoke_grant.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_revoke_own_grant.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_revoke_own_grant.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_save_grant_auth_flow.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -1128,6 +1174,13 @@ _UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow_handle.argtypes = (
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow_handle.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow_with_config.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1435,12 +1488,24 @@ _UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_approval.restype = ct
 _UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_client.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_client.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_session_cache.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_session_cache.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_create_custom_grant_proof.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_create_custom_grant_proof.restype = ctypes.c_uint16
@@ -1513,6 +1578,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_parse_deep_link.restype = ctypes.c_uin
 _UniffiLib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_public_exists.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_public_exists.restype = ctypes.c_uint16
@@ -1564,6 +1632,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_revalidate_session.restype = ctypes.c_
 _UniffiLib.uniffi_pubkycore_checksum_func_revoke_grant.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_revoke_grant.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_revoke_own_grant.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_revoke_own_grant.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_save_grant_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_save_grant_auth_flow.restype = ctypes.c_uint16
@@ -1630,6 +1701,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_start_event_stream.restype = ctypes.c_
 _UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config.restype = ctypes.c_uint16
@@ -1698,6 +1772,19 @@ class _UniffiConverterUInt16(_UniffiConverterPrimitiveInt):
     @staticmethod
     def write_unchecked(value, buf):
         buf.write_u16(value)
+
+class _UniffiConverterUInt32(_UniffiConverterPrimitiveInt):
+    CLASS_NAME = "u32"
+    VALUE_MIN = 0
+    VALUE_MAX = 2**32
+
+    @staticmethod
+    def read(buf):
+        return buf.read_u32()
+
+    @staticmethod
+    def write_unchecked(value, buf):
+        buf.write_u32(value)
 
 class _UniffiConverterUInt64(_UniffiConverterPrimitiveInt):
     CLASS_NAME = "u64"
@@ -3275,14 +3362,42 @@ def await_grant_auth_flow() -> "str":
     return _UniffiConverterString.lift(_rust_call_with_error(_UniffiConverterTypePubkyCoreError,_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow,))
 
 
+def await_grant_auth_flow_handle(flow_id: "str",timeout_secs: "int") -> "typing.List[str]":
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_await_grant_auth_flow_handle,
+        _UniffiConverterString.lower(flow_id),
+        _UniffiConverterUInt32.lower(timeout_secs)))
+
+
 def cancel_grant_auth_flow():
     _rust_call(_UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow,)
+
+
+def cancel_grant_auth_flow_handle(flow_id: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle,
+        _UniffiConverterString.lower(flow_id)))
 
 
 def configure_client(config: "PubkyClientConfig"):
     
     _rust_call_with_error(_UniffiConverterTypePubkyCoreError,_UniffiLib.uniffi_pubkycore_fn_func_configure_client,
         _UniffiConverterTypePubkyClientConfig.lower(config))
+
+
+def configure_grant_auth_flows(max_concurrent: "int",ttl_secs: "int") -> "typing.List[str]":
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_configure_grant_auth_flows,
+        _UniffiConverterUInt32.lower(max_concurrent),
+        _UniffiConverterUInt32.lower(ttl_secs)))
+
+
+def configure_session_cache(capacity: "int") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_configure_session_cache,
+        _UniffiConverterUInt32.lower(capacity)))
 
 
 def create_custom_grant_proof(session_secret: "str",data_json: "str") -> "CustomGrantProof":
@@ -3445,6 +3560,12 @@ def poll_grant_auth_flow() -> "typing.Optional[str]":
     return _UniffiConverterOptionalString.lift(_rust_call_with_error(_UniffiConverterTypePubkyCoreError,_UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow,))
 
 
+def poll_grant_auth_flow_handle(flow_id: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle,
+        _UniffiConverterString.lower(flow_id)))
+
+
 def public_exists(address: "str") -> "bool":
     
     return _UniffiConverterBool.lift(_rust_call_with_error(_UniffiConverterTypePubkyCoreError,_UniffiLib.uniffi_pubkycore_fn_func_public_exists,
@@ -3577,6 +3698,12 @@ def revoke_grant(session_secret: "str",grant_id: "str") -> "typing.List[str]":
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_revoke_grant,
         _UniffiConverterString.lower(session_secret),
         _UniffiConverterString.lower(grant_id)))
+
+
+def revoke_own_grant(session_secret: "str") -> "typing.List[str]":
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_revoke_own_grant,
+        _UniffiConverterString.lower(session_secret)))
 
 
 def save_grant_auth_flow() -> "GrantAuthFlowStateRecord":
@@ -3757,6 +3884,16 @@ def start_grant_auth_flow(capabilities_str: "str",client_id: "str") -> "typing.L
         _UniffiConverterString.lower(client_id)))
 
 
+def start_grant_auth_flow_handle(capabilities_str: "str",client_id: "str",relay: "typing.Optional[str]") -> "typing.List[str]":
+    
+    
+    
+    return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow_handle,
+        _UniffiConverterString.lower(capabilities_str),
+        _UniffiConverterString.lower(client_id),
+        _UniffiConverterOptionalString.lower(relay)))
+
+
 def start_grant_auth_flow_with_config(config: "GrantAuthFlowConfig") -> "GrantAuthFlowStateRecord":
     
     return _UniffiConverterTypeGrantAuthFlowStateRecord.lift(_rust_call_with_error(_UniffiConverterTypePubkyCoreError,_UniffiLib.uniffi_pubkycore_fn_func_start_grant_auth_flow_with_config,
@@ -3816,8 +3953,12 @@ __all__ = [
     "await_cookie_auth_approval",
     "await_grant_auth_approval",
     "await_grant_auth_flow",
+    "await_grant_auth_flow_handle",
     "cancel_grant_auth_flow",
+    "cancel_grant_auth_flow_handle",
     "configure_client",
+    "configure_grant_auth_flows",
+    "configure_session_cache",
     "create_custom_grant_proof",
     "create_recovery_file",
     "create_tag_id",
@@ -3842,6 +3983,7 @@ __all__ = [
     "parse_auth_url",
     "parse_deep_link",
     "poll_grant_auth_flow",
+    "poll_grant_auth_flow_handle",
     "public_exists",
     "public_get_bytes",
     "public_list",
@@ -3859,6 +4001,7 @@ __all__ = [
     "restore_grant_auth_flow",
     "revalidate_session",
     "revoke_grant",
+    "revoke_own_grant",
     "save_grant_auth_flow",
     "session_delete",
     "session_exists",
@@ -3881,6 +4024,7 @@ __all__ = [
     "start_cookie_auth_flow",
     "start_event_stream",
     "start_grant_auth_flow",
+    "start_grant_auth_flow_handle",
     "start_grant_auth_flow_with_config",
     "stop_all_event_streams",
     "stop_event_stream",

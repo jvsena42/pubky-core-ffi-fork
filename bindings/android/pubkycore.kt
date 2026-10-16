@@ -417,10 +417,18 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_await_grant_auth_flow(_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_pubkycore_fn_func_await_grant_auth_flow_handle(`flowId`: RustBuffer.ByValue,`timeoutSecs`: Int,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_cancel_grant_auth_flow(_uniffi_out_err: RustCallStatus, 
     ): Unit
+    fun uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle(`flowId`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_configure_client(`config`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): Unit
+    fun uniffi_pubkycore_fn_func_configure_grant_auth_flows(`maxConcurrent`: Int,`ttlSecs`: Int,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_pubkycore_fn_func_configure_session_cache(`capacity`: Int,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_create_custom_grant_proof(`sessionSecret`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_create_recovery_file(`secretKey`: RustBuffer.ByValue,`passphrase`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -469,6 +477,8 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_poll_grant_auth_flow(_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle(`flowId`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_public_exists(`address`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): Byte
     fun uniffi_pubkycore_fn_func_public_get_bytes(`address`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -502,6 +512,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_pubkycore_fn_func_revalidate_session(`sessionSecret`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_revoke_grant(`sessionSecret`: RustBuffer.ByValue,`grantId`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_pubkycore_fn_func_revoke_own_grant(`sessionSecret`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_save_grant_auth_flow(_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
@@ -546,6 +558,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_pubkycore_fn_func_start_event_stream(`config`: RustBuffer.ByValue,`listener`: Long,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_start_grant_auth_flow(`capabilitiesStr`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_pubkycore_fn_func_start_grant_auth_flow_handle(`capabilitiesStr`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`relay`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_pubkycore_fn_func_start_grant_auth_flow_with_config(`config`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
@@ -685,9 +699,17 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_pubkycore_checksum_func_await_grant_auth_flow(
     ): Short
+    fun uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle(
+    ): Short
     fun uniffi_pubkycore_checksum_func_cancel_grant_auth_flow(
     ): Short
+    fun uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle(
+    ): Short
     fun uniffi_pubkycore_checksum_func_configure_client(
+    ): Short
+    fun uniffi_pubkycore_checksum_func_configure_grant_auth_flows(
+    ): Short
+    fun uniffi_pubkycore_checksum_func_configure_session_cache(
     ): Short
     fun uniffi_pubkycore_checksum_func_create_custom_grant_proof(
     ): Short
@@ -737,6 +759,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_pubkycore_checksum_func_poll_grant_auth_flow(
     ): Short
+    fun uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle(
+    ): Short
     fun uniffi_pubkycore_checksum_func_public_exists(
     ): Short
     fun uniffi_pubkycore_checksum_func_public_get_bytes(
@@ -770,6 +794,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_pubkycore_checksum_func_revalidate_session(
     ): Short
     fun uniffi_pubkycore_checksum_func_revoke_grant(
+    ): Short
+    fun uniffi_pubkycore_checksum_func_revoke_own_grant(
     ): Short
     fun uniffi_pubkycore_checksum_func_save_grant_auth_flow(
     ): Short
@@ -814,6 +840,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_pubkycore_checksum_func_start_event_stream(
     ): Short
     fun uniffi_pubkycore_checksum_func_start_grant_auth_flow(
+    ): Short
+    fun uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle(
     ): Short
     fun uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config(
     ): Short
@@ -880,10 +908,22 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_pubkycore_checksum_func_await_grant_auth_flow() != 25430.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_pubkycore_checksum_func_await_grant_auth_flow_handle() != 43474.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow() != 21408.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_pubkycore_checksum_func_cancel_grant_auth_flow_handle() != 27553.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_pubkycore_checksum_func_configure_client() != 49656.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows() != 36358.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_pubkycore_checksum_func_configure_session_cache() != 7117.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343.toShort()) {
@@ -958,6 +998,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow() != 62466.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_pubkycore_checksum_func_poll_grant_auth_flow_handle() != 25105.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_pubkycore_checksum_func_public_exists() != 55217.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1007,6 +1050,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_revoke_grant() != 15677.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_pubkycore_checksum_func_revoke_own_grant() != 22919.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_save_grant_auth_flow() != 63609.toShort()) {
@@ -1073,6 +1119,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow() != 48937.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_handle() != 53487.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_pubkycore_checksum_func_start_grant_auth_flow_with_config() != 31556.toShort()) {
@@ -1144,6 +1193,26 @@ public object FfiConverterUShort: FfiConverter<UShort, Short> {
 
     override fun write(value: UShort, buf: ByteBuffer) {
         buf.putShort(value.toShort())
+    }
+}
+
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
     }
 }
 
@@ -3046,12 +3115,28 @@ fun `awaitGrantAuthFlow`(): String {
 }
 
 
+fun `awaitGrantAuthFlowHandle`(`flowId`: String, `timeoutSecs`: UInt): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_await_grant_auth_flow_handle(FfiConverterString.lower(`flowId`),FfiConverterUInt.lower(`timeoutSecs`),_status)
+})
+}
+
+
 fun `cancelGrantAuthFlow`() =
     
     rustCall() { _status ->
     _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_cancel_grant_auth_flow(_status)
 }
 
+
+
+fun `cancelGrantAuthFlowHandle`(`flowId`: String): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_cancel_grant_auth_flow_handle(FfiConverterString.lower(`flowId`),_status)
+})
+}
 
 @Throws(PubkyCoreException::class)
 
@@ -3061,6 +3146,22 @@ fun `configureClient`(`config`: PubkyClientConfig) =
     _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_configure_client(FfiConverterTypePubkyClientConfig.lower(`config`),_status)
 }
 
+
+
+fun `configureGrantAuthFlows`(`maxConcurrent`: UInt, `ttlSecs`: UInt): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_configure_grant_auth_flows(FfiConverterUInt.lower(`maxConcurrent`),FfiConverterUInt.lower(`ttlSecs`),_status)
+})
+}
+
+
+fun `configureSessionCache`(`capacity`: UInt): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_configure_session_cache(FfiConverterUInt.lower(`capacity`),_status)
+})
+}
 
 @Throws(PubkyCoreException::class)
 
@@ -3259,6 +3360,14 @@ fun `pollGrantAuthFlow`(): String? {
 })
 }
 
+
+fun `pollGrantAuthFlowHandle`(`flowId`: String): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_poll_grant_auth_flow_handle(FfiConverterString.lower(`flowId`),_status)
+})
+}
+
 @Throws(PubkyCoreException::class)
 
 fun `publicExists`(`address`: String): Boolean {
@@ -3397,6 +3506,14 @@ fun `revokeGrant`(`sessionSecret`: String, `grantId`: String): List<String> {
     return FfiConverterSequenceString.lift(
     rustCall() { _status ->
     _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_revoke_grant(FfiConverterString.lower(`sessionSecret`),FfiConverterString.lower(`grantId`),_status)
+})
+}
+
+
+fun `revokeOwnGrant`(`sessionSecret`: String): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_revoke_own_grant(FfiConverterString.lower(`sessionSecret`),_status)
 })
 }
 
@@ -3584,6 +3701,14 @@ fun `startGrantAuthFlow`(`capabilitiesStr`: String, `clientId`: String): List<St
     return FfiConverterSequenceString.lift(
     rustCall() { _status ->
     _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_start_grant_auth_flow(FfiConverterString.lower(`capabilitiesStr`),FfiConverterString.lower(`clientId`),_status)
+})
+}
+
+
+fun `startGrantAuthFlowHandle`(`capabilitiesStr`: String, `clientId`: String, `relay`: String?): List<String> {
+    return FfiConverterSequenceString.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_pubkycore_fn_func_start_grant_auth_flow_handle(FfiConverterString.lower(`capabilitiesStr`),FfiConverterString.lower(`clientId`),FfiConverterOptionalString.lower(`relay`),_status)
 })
 }
 

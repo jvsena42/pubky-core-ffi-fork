@@ -927,22 +927,21 @@ pub fn sign_out(session_secret: String) -> Vec<String> {
 pub fn list_grants(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
-        };
+        // Through the cache like every other session-secret entry point, so an expired grant
+        // answers with the `SESSION_REJECTED` marker and a refused proxy with its cause.
+        let listing = session_cache::with_session(&session_secret, |session| async move {
+            GrantManager::new(&session).list().await
+        })
+        .await;
 
-        match GrantManager::new(&session).list().await {
+        match listing {
             Ok(grants) => match serde_json::to_string(&grants) {
                 Ok(json) => create_response_vector(false, json),
                 Err(error) => {
                     create_response_vector(true, format!("Failed to serialize grants: {}", error))
                 }
             },
-            Err(error) => create_response_vector(true, format!("Failed to list grants: {}", error)),
+            Err(error) => create_response_vector(true, error.into_message("Failed to list grants")),
         }
     })
 }
@@ -956,18 +955,21 @@ pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
 
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
-        let pubky_client = get_pubky_client();
-        let session = match pubky_client.restore_session(&session_secret).await {
-            Ok(session) => session,
-            Err(error) => {
-                return create_response_vector(true, format!("Failed to import session: {}", error))
-            }
-        };
+        let revocation = session_cache::with_session(&session_secret, |session| {
+            let grant_id = grant_id.clone();
+            async move { GrantManager::new(&session).revoke(&grant_id).await }
+        })
+        .await;
 
-        match GrantManager::new(&session).revoke(&grant_id).await {
-            Ok(()) => create_response_vector(false, "Grant revoked".to_string()),
+        match revocation {
+            Ok(()) => {
+                // Every session minted from that grant is dead now, the caller's own included
+                // when it revoked itself; left cached, the next write would burn a 401 first.
+                session_cache::forget_grant(grant_id.as_str()).await;
+                create_response_vector(false, "Grant revoked".to_string())
+            }
             Err(error) => {
-                create_response_vector(true, format!("Failed to revoke grant: {}", error))
+                create_response_vector(true, error.into_message("Failed to revoke grant"))
             }
         }
     })

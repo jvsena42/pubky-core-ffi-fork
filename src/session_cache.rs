@@ -104,7 +104,9 @@ impl SessionOpError {
             SessionOpError::Op(error) if is_session_rejected(&error) => {
                 rejected(&error, format_args!("{verb}: {error}"))
             }
-            SessionOpError::Op(error) => format!("{verb}: {error}"),
+            // The full chain, for the same reason `import` walks it: a proxy or TLS refusal on
+            // the operation itself shows nothing but "error sending request" at the top.
+            SessionOpError::Op(error) => format!("{verb}: {}", crate::full_error_chain(&error)),
         }
     }
 }
@@ -132,6 +134,24 @@ fn remember(secret: &str, session: &PubkySession) {
 /// Drop one session, so the next call re-imports it.
 pub fn forget(secret: &str) {
     sessions().remove(secret);
+}
+
+/// Drop every cached session minted from `grant_id`. A revoked grant's sessions would otherwise
+/// sit in the cache until their first `401` — the root session itself among them, when the grant
+/// it revoked was its own.
+pub async fn forget_grant(grant_id: &str) {
+    let cached: Vec<(String, PubkySession)> = sessions()
+        .iter()
+        .map(|(secret, session)| (secret.clone(), session.clone()))
+        .collect();
+    for (secret, session) in cached {
+        let Some(grant) = session.as_grant() else {
+            continue;
+        };
+        if grant.grant_id().await.as_str() == grant_id {
+            forget(&secret);
+        }
+    }
 }
 
 /// Drop every session. Called when the network is switched: those sessions belong to the previous

@@ -526,6 +526,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows() != 36358:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_pubkycore_checksum_func_configure_max_body_bytes() != 5303:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_configure_session_cache() != 7117:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_pubkycore_checksum_func_create_custom_grant_proof() != 56343:
@@ -797,6 +799,11 @@ _UniffiLib.uniffi_pubkycore_fn_func_configure_grant_auth_flows.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_pubkycore_fn_func_configure_grant_auth_flows.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes.restype = ctypes.c_uint64
 _UniffiLib.uniffi_pubkycore_fn_func_configure_session_cache.argtypes = (
     ctypes.c_uint32,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1503,6 +1510,9 @@ _UniffiLib.uniffi_pubkycore_checksum_func_configure_client.restype = ctypes.c_ui
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_grant_auth_flows.restype = ctypes.c_uint16
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_max_body_bytes.argtypes = (
+)
+_UniffiLib.uniffi_pubkycore_checksum_func_configure_max_body_bytes.restype = ctypes.c_uint16
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_session_cache.argtypes = (
 )
 _UniffiLib.uniffi_pubkycore_checksum_func_configure_session_cache.restype = ctypes.c_uint16
@@ -3394,6 +3404,12 @@ def configure_grant_auth_flows(max_concurrent: "int",ttl_secs: "int") -> "typing
         _UniffiConverterUInt32.lower(ttl_secs)))
 
 
+def configure_max_body_bytes(max_bytes: "int") -> "int":
+    
+    return _UniffiConverterUInt64.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_configure_max_body_bytes,
+        _UniffiConverterUInt64.lower(max_bytes)))
+
+
 def configure_session_cache(capacity: "int") -> "typing.List[str]":
     
     return _UniffiConverterSequenceString.lift(_rust_call(_UniffiLib.uniffi_pubkycore_fn_func_configure_session_cache,
@@ -3958,6 +3974,7 @@ __all__ = [
     "cancel_grant_auth_flow_handle",
     "configure_client",
     "configure_grant_auth_flows",
+    "configure_max_body_bytes",
     "configure_session_cache",
     "create_custom_grant_proof",
     "create_recovery_file",

@@ -2440,6 +2440,15 @@ public func configureGrantAuthFlows(maxConcurrent: UInt32, ttlSecs: UInt32)  -> 
     )
 }
 
+public func configureMaxBodyBytes(maxBytes: UInt64)  -> UInt64 {
+    return try!  FfiConverterUInt64.lift(
+        try! rustCall() {
+    uniffi_pubkycore_fn_func_configure_max_body_bytes(
+        FfiConverterUInt64.lower(maxBytes),$0)
+}
+    )
+}
+
 public func configureSessionCache(capacity: UInt32)  -> [String] {
     return try!  FfiConverterSequenceString.lift(
         try! rustCall() {
@@ -3192,6 +3201,9 @@ private var initializationResult: InitializationResult {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_configure_grant_auth_flows() != 36358) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_pubkycore_checksum_func_configure_max_body_bytes() != 5303) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_pubkycore_checksum_func_configure_session_cache() != 7117) {

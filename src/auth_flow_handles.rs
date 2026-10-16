@@ -14,6 +14,13 @@
 //! a `start`-only sweep never runs, and an abandoned flow would keep its listener long-polling
 //! the relay and its key material in memory indefinitely. The cap is one budget for the whole
 //! process, so a host serving many callers rate-limits `start` per caller itself.
+//!
+//! **Expired is not the same as gone.** The SDK's listener ACKs — deletes — an approval at the
+//! relay the moment it receives it, and then holds it in its channel until someone polls; dropping
+//! the flow drops the approval with it, and a user who approved in Ring is never signed in. So a
+//! flow past its TTL is only answered `expired` by its own poll or await, after that call has
+//! looked in the channel once; and the sweep, which cannot look, leaves an expired flow alone for
+//! one more TTL ([`collectable_for`]) so its owner's next poll still finds what arrived in time.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -94,10 +101,27 @@ pub(crate) fn pending_count() -> usize {
     flows().len()
 }
 
-/// Drop every flow older than the TTL that is not inside a poll or an await. One that is gets its
-/// chance when that call returns: it checks the TTL itself before putting the flow back.
+/// How long past `started` an entry is kept for its owner to collect: the TTL, and one more TTL
+/// for an approval that reached the listener's channel before the TTL ran out. Bounds the map at
+/// twice the cap, since only flows inside their TTL count against it.
+fn collectable_for(ttl: Duration) -> Duration {
+    ttl.saturating_mul(2)
+}
+
+/// Drop every flow past [`collectable_for`] that is not inside a poll or an await. One that is
+/// is decided by that call, which looks in the channel before answering `expired`.
 fn evict_expired(flows: &mut HashMap<String, FlowEntry>, ttl: Duration) {
-    flows.retain(|_, entry| entry.flow.is_none() || entry.started.elapsed() <= ttl);
+    let keep_for = collectable_for(ttl);
+    flows.retain(|_, entry| entry.flow.is_none() || entry.started.elapsed() <= keep_for);
+}
+
+/// Flows still inside their TTL: the ones the cap is about. An expired flow kept for collection
+/// can no longer be approved, so it does not hold a place a new sign-in needs.
+fn live_count(flows: &HashMap<String, FlowEntry>, ttl: Duration) -> usize {
+    flows
+        .values()
+        .filter(|entry| entry.started.elapsed() <= ttl)
+        .count()
 }
 
 fn sweep() {
@@ -129,7 +153,7 @@ pub fn start(
     {
         let mut flows = flows();
         evict_expired(&mut flows, ttl);
-        if flows.len() >= max_flows {
+        if live_count(&flows, ttl) >= max_flows {
             return Err(format!(
                 "Too many pending auth flows: {max_flows} already waiting for approval"
             ));
@@ -157,7 +181,7 @@ pub fn start(
     let mut flows = flows();
     // The cap was checked before the relay channel was opened; a start that raced past it here
     // still has to lose, or the cap is advisory.
-    if flows.len() >= max_flows {
+    if live_count(&flows, ttl) >= max_flows {
         return Err(format!(
             "Too many pending auth flows: {max_flows} already waiting for approval"
         ));
@@ -174,26 +198,24 @@ pub(crate) enum Taken {
         cancelled: Arc<Notify>,
         started: Instant,
     },
-    /// Another poll or await holds the flow right now.
+    /// Another poll or await holds the flow right now — expired or not: that call decides it.
     Busy,
-    /// Older than the TTL. Removed here, with its listener.
-    Expired,
     Unknown,
 }
 
 /// Take `id`'s flow out of the map, sweeping expired flows on the way, so that every entry point
 /// pays for the sweep and not only `start`.
+///
+/// An expired flow is handed out like any other: its caller looks in the channel once and only
+/// then answers `expired` (see the module docs). Deciding it here, before that look, is how an
+/// approval received at 4:59 and polled at 5:01 was lost.
 pub(crate) fn take(id: &str) -> Taken {
     let ttl = limits().ttl;
     let mut flows = flows();
-    // This id first, so a caller still polling an expired flow is told `Expired` once rather
-    // than finding it already swept; the others after.
+    // This id first, so a caller still polling an expired flow gets its look and its `Expired`
+    // rather than finding it already swept; the others after.
     let taken = match flows.get_mut(id) {
         None => Taken::Unknown,
-        Some(entry) if entry.started.elapsed() > ttl => {
-            flows.remove(id);
-            Taken::Expired
-        }
         Some(entry) => match entry.flow.take() {
             Some(flow) => Taken::Flow {
                 flow,
@@ -278,16 +300,25 @@ fn rejoined(id: &str, pending: Option<&PendingGrantFlow>) -> Result<Outcome, Str
 /// contract cannot express "try again", and a host that reads any error as the sign-in failing
 /// would drop a flow its other poll is about to complete (loopky#214).
 pub async fn poll(id: &str) -> Result<Outcome, String> {
-    let (flow, pending) = match take(id) {
-        Taken::Flow { flow, pending, .. } => (flow, pending),
+    let (flow, pending, started) = match take(id) {
+        Taken::Flow {
+            flow,
+            pending,
+            started,
+            ..
+        } => (flow, pending, started),
         Taken::Busy => return Ok(Outcome::Pending),
-        Taken::Expired => return Ok(Outcome::Expired),
         Taken::Unknown => return Err(unknown(id)),
     };
     match flow.try_poll_once().await {
         Ok(Some(session)) => {
             remove(id);
             Ok(Outcome::Approved(session))
+        }
+        // Only after the look: an approval already in the channel is handed out, not expired.
+        Ok(None) if expired(started) => {
+            remove(id);
+            Ok(Outcome::Expired)
         }
         Ok(None) => {
             if give_back(id, flow) {
@@ -301,6 +332,10 @@ pub async fn poll(id: &str) -> Result<Outcome, String> {
                 .as_ref()
                 .is_some_and(|p| grant_resume::is_relay_transport_failure(&error, &p.relay)) =>
         {
+            if expired(started) {
+                remove(id);
+                return Ok(Outcome::Expired);
+            }
             rejoined(id, pending.as_ref())
         }
         Err(error) => {
@@ -331,7 +366,6 @@ pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, Stri
             started,
         } => (flow, pending, cancelled, started),
         Taken::Busy => return Err(format!("Auth flow {id} is already being awaited")),
-        Taken::Expired => return Ok(Outcome::Expired),
         Taken::Unknown => return Err(unknown(id)),
     };
     let deadline = Instant::now() + timeout;
@@ -347,6 +381,10 @@ pub async fn await_approval(id: &str, timeout: Duration) -> Result<Outcome, Stri
                     grant_resume::is_relay_transport_failure(&error, &p.relay)
                 }) =>
             {
+                if expired(started) {
+                    remove(id);
+                    return Ok(Outcome::Expired);
+                }
                 flow = match restored(id, pending.as_ref()) {
                     Ok(flow) => flow,
                     Err(message) => {

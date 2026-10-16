@@ -1354,6 +1354,142 @@ mod tests {
         assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "true");
     }
 
+    fn start_handle_flow_on(relay: &str) -> String {
+        let started = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            Some(relay.to_string()),
+        );
+        assert_eq!(started[0], "false", "start: {:?}", started);
+        let json: serde_json::Value = serde_json::from_str(&started[1]).unwrap();
+        json["flow_id"].as_str().expect("flow_id").to_string()
+    }
+
+    /// A local relay that answers every long-poll with `body` at once and counts the requests.
+    fn answering_relay(
+        body: &'static str,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/inbox", listener.local_addr().unwrap());
+        let requests = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                counted.fetch_add(1, Ordering::SeqCst);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        (url, requests)
+    }
+
+    /// The relay hands the listener a message and the listener ACKs it there, so from then on it
+    /// exists only in the flow. A poll arriving after the TTL must hand over what arrived, not
+    /// answer `expired` and drop it: that is an approved sign-in lost at 5:01. The message here
+    /// is not a valid approval — offline, there is no signer — so what arrives is its failure,
+    /// which is the same channel an approval comes through.
+    #[test]
+    fn test_an_expired_handle_flow_hands_over_what_already_arrived() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        let (relay, requests) = answering_relay("not an approval");
+        let id = start_handle_flow_on(&relay);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while requests.load(Ordering::SeqCst) == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the listener never polled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(
+            polled[0], "true",
+            "what arrived, not `expired`: {:?}",
+            polled
+        );
+        assert!(
+            polled[1].starts_with("Auth approval failed"),
+            "{}",
+            polled[1]
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// A poll that finds an expired flow in another call's hands leaves it there: that call may be
+    /// mid-exchange with an approval, and it decides the flow. Once it is put back, the next poll
+    /// looks and says `expired`.
+    #[test]
+    fn test_an_expired_flow_in_another_calls_hands_is_left_to_it() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let held = match auth_flow_handles::take(&id) {
+            auth_flow_handles::Taken::Flow { flow, .. } => flow,
+            _ => panic!("the flow is there to be taken"),
+        };
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "{:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            1,
+            "not removed under the holder"
+        );
+
+        assert!(auth_flow_handles::give_back(&id, held));
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[1], r#"{"status":"expired"}"#, "{:?}", polled);
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// The sweep cannot look in a flow's channel, so it leaves an expired flow for its owner for
+    /// one more TTL, and only then drops it. A flow kept that way no longer holds a place under
+    /// the cap.
+    #[test]
+    fn test_the_sweep_leaves_an_expired_flow_for_its_owner() {
+        let _lock = handle_flow_lock();
+        assert_eq!(configure_grant_auth_flows(1, 1)[0], "false");
+        let (kept, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+
+        let (fresh, _) = start_handle_flow();
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            2,
+            "a start past the TTL kept the expired flow"
+        );
+        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "false");
+        assert_eq!(
+            poll_grant_auth_flow_handle(kept)[1],
+            r#"{"status":"expired"}"#
+        );
+
+        let (dropped, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        let _ = poll_grant_auth_flow_handle("someone-else".to_string());
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            0,
+            "swept after two TTLs"
+        );
+        assert_eq!(poll_grant_auth_flow_handle(dropped)[0], "true");
+    }
+
     #[test]
     fn test_handle_flow_rejects_bad_inputs_before_opening_a_channel() {
         let _lock = handle_flow_lock();

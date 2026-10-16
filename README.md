@@ -130,6 +130,17 @@ SDK, so unlike the Linux row there is no container that can cross-build it. See
 `.github/workflows/desktop-windows.yml`, which also asserts the DLL needs no Visual C++
 redistributable — a check the build itself cannot make, since the runner has one installed.
 
+The two Apple rows — the macOS dylib and the iOS XCFramework — come from
+`.github/workflows/desktop-macos.yml` whenever the developer's machine is not a Mac. Both
+workflows only *upload* artifacts; a person downloads them (`gh run download <run-id>`) and
+commits them, so that a workflow running on a pull request can never write a binary into the
+repository by itself.
+
+The Linux row is built inside `rust:1-bullseye` rather than on the host: a cdylib links against
+its builder's glibc, and consumers (loopky's CLI container is `ubuntu:22.04`) need the floor at
+2.34 or below. Check it with
+`objdump -T bindings/desktop/linux-x86-64/libpubkycore.so | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1`.
+
 ## Run Tests:
 ```
 cargo test -- --test-threads=1

@@ -65,9 +65,21 @@ jobs:
           lipo -info bindings/desktop/darwin-aarch64/libpubkycore.dylib
           lipo -info bindings/desktop/darwin-aarch64/libpubkycore.dylib | grep -q 'arm64'
 
+      # The build script copies the dylib into the Python package, and the module resolves every
+      # function's checksum symbol at import. So this is the check that the committed
+      # `pubkycore.py` and the dylib beside it are from the same surface — the one failure a
+      # regenerated binding with a stale dylib produces, and the only step that would see it.
+      - name: The Python package imports against it
+        run: |
+          cmp bindings/desktop/darwin-aarch64/libpubkycore.dylib bindings/python/pubkycore/libpubkycore.dylib
+          cd bindings/python
+          python3 -c 'import pubkycore; print(pubkycore.generate_secret_key()[0])'
+
       # The artifact is downloaded and committed in a second step rather than by this job: a
       # workflow that writes a binary back into the repository is a workflow that can be made to
       # commit one, and this one runs on pull requests.
+      # One file, committed to two places: `bindings/desktop/darwin-aarch64/` and
+      # `bindings/python/pubkycore/`.
       - uses: actions/upload-artifact@v4
         with:
           name: pubkycore-darwin-aarch64

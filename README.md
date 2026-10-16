@@ -142,7 +142,11 @@ The two Apple rows — the macOS dylib and the iOS XCFramework — come from
 `.github/workflows/desktop-macos.yml` whenever the developer's machine is not a Mac. Both
 workflows only *upload* artifacts; a person downloads them (`gh run download <run-id>`) and
 commits them, so that a workflow running on a pull request can never write a binary into the
-repository by itself.
+repository by itself. The macOS dylib is committed **twice**: under `bindings/desktop/` for JNA
+and as `bindings/python/pubkycore/libpubkycore.dylib`, the one the Python module loads.
+`build_desktop.sh macos` writes both, and the workflow imports the Python package against the
+fresh build, because the module checks every function's checksum at import — a dylib older than
+`pubkycore.py` fails `import pubkycore` with a missing symbol, and nothing else notices.
 
 The Linux row is built inside `rust:1-bullseye` rather than on the host: a cdylib links against
 its builder's glibc, and consumers (loopky's CLI container is `ubuntu:22.04`) need the floor at

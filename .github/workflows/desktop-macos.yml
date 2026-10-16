@@ -73,7 +73,7 @@ jobs:
         run: |
           cmp bindings/desktop/darwin-aarch64/libpubkycore.dylib bindings/python/pubkycore/libpubkycore.dylib
           cd bindings/python
-          python3 -c 'import pubkycore; print(pubkycore.generate_secret_key()[0])'
+          python3 -c 'from pubkycore.pubkycore import generate_secret_key; print(generate_secret_key()[0])'
 
       # The artifact is downloaded and committed in a second step rather than by this job: a
       # workflow that writes a binary back into the repository is a workflow that can be made to

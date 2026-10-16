@@ -150,11 +150,17 @@ fn build_pubky_with(
 /// Every export `block_on`s on the caller's thread, and pubky's own default is no deadline at all:
 /// a homeserver that accepts the connection and never answers parked that thread for good, and a
 /// hosted client (loopky#214) reaches every homeserver its tenants choose. The read timeout is
-/// what catches that — it resets on every byte, so a slow body still arrives — and the request
-/// timeout is the backstop for a body that trickles. Both reach the relay long-poll too, where a
-/// timeout is `PollError::Timeout` and just polls again, not a failure.
+/// what catches that; the request timeout is the backstop for a body that trickles. Both reach
+/// the relay long-poll too, where a timeout is `PollError::Timeout` and just polls again.
+///
+/// **The read timeout is one budget until the response head arrives, not a per-read one.** In
+/// reqwest 0.13 it is a single `Sleep` armed when the request starts and polled until the headers
+/// land; the per-read reset only applies to the *response* body (`ReadTimeoutBody`). So the whole
+/// upload, the homeserver's write and its answer all have to fit in it. 120s lets a 32 MiB
+/// `put_bytes_with_session` — Loopky's largest write — through on a ~2.3 Mbit/s uplink, where 30s
+/// needed ~9 and every retry died the same way; the stalled-homeserver bound is still 120s.
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
-pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
 /// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,

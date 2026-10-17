@@ -11,7 +11,7 @@ coordinating a migration across those apps.
 - **Public keys are always bare z-base32** (52 chars, no prefix) in every
   output: `public_key` fields, the session `pubky` field, `get_homeserver`,
   and the `publish`/`publish_https` return values. The underlying
-  `pubky` crate renders `PublicKey::to_string()` as
+  `pubky` crate (0.16.x) renders `PublicKey::to_string()` as
   `pubky<z32>`, so all output sites must use `.z32()` instead — pubky's own
   storage URL parser rejects `pubky://pubky<z32>/...`, and downstream apps
   build `pubky://<key>/...` URLs from these values. Inputs accept either form.
@@ -22,11 +22,15 @@ coordinating a migration across those apps.
   `kind` (`"signin"` or `"signup"`; legacy `pubkyauth:///?...` URLs are
   `"signin"`) and, for signup links, optional `homeserver` (bare z32) and
   `signup_token` fields.
-- **Authentication mirrors pubky 0.14.** Grant auth is exposed through
+- **Authentication mirrors pubky 0.16.** Grant auth is exposed through
   `sign_up_grant`, `sign_in_grant`, `start_grant_auth_flow`, and
   `await_grant_auth_approval`; these return `grant_secret` in session JSON.
   The unqualified `sign_up`, `sign_in`, `start_auth_flow`, and
   `await_auth_approval` names are Grant aliases for downstream migration.
+- **Signer approval can be narrowed.** `auth` approves every capability in an
+  auth request, while `auth_with_capabilities` accepts the user-approved
+  comma-separated `scope:actions` subset. An empty string approves no
+  capabilities; the SDK rejects approvals that exceed the request.
 - **Legacy cookie auth remains available** through `sign_up_cookie`,
   `sign_in_cookie`, `start_cookie_auth_flow`, and
   `await_cookie_auth_approval`; these return `session_secret` in session JSON.
@@ -36,6 +40,73 @@ coordinating a migration across those apps.
   `revalidate_session`, `put_with_session`, and `delete_with_session` call
   `Pubky::restore_session`, so they accept a Grant `grant_secret` or a legacy
   cookie `session_secret`.
+- **Many identities in one process.** A hosted client that signs many users in at once
+  (loopky#214) uses the id-addressed grant flows instead of the process-wide slot:
+  `start_grant_auth_flow_handle(capabilities, client_id, relay)` returns
+  `{"flow_id", "authorization_url"}`; `poll_grant_auth_flow_handle(flow_id)` never blocks and
+  answers `{"status": "pending"}`, `{"status": "expired"}` or `{"status": "approved", "session":
+  {…}}`, where `session` is the same object `await_grant_auth_approval` returns (`grant_secret`
+  included); `await_grant_auth_flow_handle(flow_id, timeout_secs)` blocks for at most
+  `timeout_secs` and answers the same three shapes, a timeout being `pending` with the flow kept —
+  its listener included, since dropping one can lose an approval the relay has already handed
+  over; and `cancel_grant_auth_flow_handle(flow_id)` drops one. An approval is handed out
+  **once** — the flow is removed with it, as it is on failure, cancellation and expiry — and so is
+  `expired`: the next call for that id is told there is no such flow. A poll that overlaps
+  another poll or an await on the same flow answers `pending` (there is nothing new to report;
+  a second *await* is refused, since two blocking waiters do conflict). Pending flows are capped
+  (64) and swept after a TTL (300s, the relay's hold) on every call, not only `start`;
+  `configure_grant_auth_flows(max, ttl_secs)` changes both. The cap is one budget for the whole
+  process, so a host serving many callers must rate-limit `start_grant_auth_flow_handle` per
+  caller itself. The old slot-based functions are unchanged.
+- **The session cache is an LRU with single-flight minting.** `*_with_session` calls reuse the
+  imported session per secret; `configure_session_cache(capacity)` sets how many are kept
+  (default 4, for a phone). Overflow evicts the least recently used session only. Two concurrent
+  imports of the same secret — or two re-mints after the same `401` — perform one grant exchange
+  and share it, so they cannot replace each other's bearer.
+- **`revoke_own_grant(session_secret)` revokes a grant from its stored secret alone.** It
+  signs the revocation proof with the secret's `PoP` key (`DELETE /auth/grant/session`), so it
+  works after the last bearer expired and needs no root session; every session minted from the
+  grant dies with it, and the cache forgets it. A grant that is already gone answers with the
+  `Session rejected` marker, which for an unlink means there is nothing left to do. `revoke_grant`
+  (by id, root session) also evicts any cached session minted from that grant.
+- **Grant management requires a root-capability session.** `list_grants`
+  returns the account's active grants and `revoke_grant` revokes a grant by
+  id, invalidating all sessions minted from it.
+- **Every request has a deadline, and every body read has a ceiling.** The client is built with
+  a 300s request timeout and a 120s read timeout (pubky's own default is none), so a homeserver
+  that accepts the connection and never answers cannot park the calling thread for good;
+  `configure_client` overrides both. `get`, `get_bytes`, `public_get_bytes` and
+  `session_get_bytes` refuse a body over 50 MiB — on its `Content-Length` before a byte is read,
+  or while reading one that declares nothing — and `configure_max_body_bytes(max_bytes)` sets
+  the limit (returning the one in force; `0` only reads it). The homeserver is whatever the
+  resolved pubky names, so neither number is something a consumer should leave to that host.
+- **New Pubky 0.16 APIs use typed native errors.** Existing functions keep the
+  `[error, data]` vector contract. The additive storage, event, lock, client
+  configuration, blocking-signin, and advanced Grant-flow APIs return native
+  `Result` values with `PubkyCoreError` variants instead.
+
+## Pubky 0.16 Client Bindings
+
+The high-level Pubky 0.16 client surface is available to generated Swift,
+Kotlin, and Python bindings:
+
+- Client configuration: request/read timeouts, connection pooling, bounded
+  error bodies, user-agent suffixes, mainnet, and custom-host testnet.
+- Storage: public and authenticated reads, public and private paths, raw bytes,
+  existence checks, metadata, paginated listings, writes, and deletes.
+- Authentication: Grant signin and signup flows, relay and callback
+  configuration, save/restore, non-blocking polling, cancellation, blocking
+  signin, session revalidation, Grant management, signed approvals, scoped
+  encryption keys, and custom offline-verifiable proofs.
+- Events: historical and live streams, multiple users, cursors, path filters,
+  private authenticated streams, reverse order, limits, and cancellation.
+- Locks: acquire, inspect, refresh, write, delete, and unlock.
+- Structured failures: transport, server status, validation, JSON decoding,
+  PKARR retryability, parsing, authentication expiry, build, and binding-state
+  errors.
+
+See [BINDING_PARITY.md](BINDING_PARITY.md) for the SDK-to-FFI mapping and the
+small set of Rust-specific low-level primitives intentionally kept internal.
 
 ## Building the SDK
 
@@ -95,6 +166,28 @@ Windows is built by CI and nowhere else: the MSVC target needs the Microsoft lin
 SDK, so unlike the Linux row there is no container that can cross-build it. See
 `.github/workflows/desktop-windows.yml`, which also asserts the DLL needs no Visual C++
 redistributable — a check the build itself cannot make, since the runner has one installed.
+
+The two Apple rows — the macOS dylib and the iOS XCFramework — come from
+`.github/workflows/desktop-macos.yml` whenever the developer's machine is not a Mac. Both
+workflows only *upload* artifacts; a person downloads them (`gh run download <run-id>`) and
+commits them, so that a workflow running on a pull request can never write a binary into the
+repository by itself. The macOS dylib is committed **twice**: under `bindings/desktop/` for JNA
+and as `bindings/python/pubkycore/libpubkycore.dylib`, the one the Python module loads.
+`build_desktop.sh macos` writes both, and the workflow imports the Python package against the
+fresh build, because the module checks every function's checksum at import — a dylib older than
+`pubkycore.py` fails `import pubkycore` with a missing symbol, and nothing else notices.
+
+**Every row has to export what the bindings resolve, and a merge can quietly break that.** The
+generated bindings name each function (`uniffi_pubkycore_fn_func_*`) and resolve it at load or at
+link, so a binary from another commit — a merge that resolved a row to the other branch's build —
+fails on a consumer's first call and nowhere earlier. `scripts/check_ffi_exports.py` compares a
+binary's exports with a binding's list; every build script runs it on the row it just produced,
+and `.github/workflows/ffi-exports.yml` runs it on every committed row on every pull request.
+
+The Linux row is built inside `rust:1-bullseye` rather than on the host: a cdylib links against
+its builder's glibc, and consumers (loopky's CLI container is `ubuntu:22.04`) need the floor at
+2.34 or below. Check it with
+`objdump -T bindings/desktop/linux-x86-64/libpubkycore.so | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1`.
 
 ## Run Tests:
 ```

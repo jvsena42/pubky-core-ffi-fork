@@ -1,17 +1,33 @@
+#![allow(unpredictable_function_pointer_comparisons)]
+
 mod auth;
+mod auth_flow;
+mod auth_flow_handles;
+mod binding_error;
+mod body_limit;
 mod cookie_exchange;
 mod env_roots;
+mod events;
+mod grant_features;
 mod grant_resume;
 mod keypair;
+mod locks;
 #[cfg(target_os = "android")]
 mod rustls_init;
 mod session_cache;
+mod storage;
 mod tests;
 mod types;
 mod utils;
 
 pub use auth::*;
+pub use auth_flow::*;
+pub use binding_error::*;
+pub use events::*;
+pub use grant_features::*;
 pub use keypair::*;
+pub use locks::*;
+pub use storage::*;
 pub use types::*;
 pub use utils::*;
 
@@ -29,8 +45,8 @@ use pubky::pkarr::{dns, SignedPacket};
 use pubky::recovery_file;
 #[allow(deprecated)]
 use pubky::{
-    AuthFlowKind, Capabilities, ClientId, Pubky, PubkyCookieAuthFlow, PubkyGrantAuthFlow,
-    PubkyHttpClient, PubkySession, PublicKey,
+    AuthFlowKind, Capabilities, ClientId, GrantCredential, GrantId, GrantManager, Pubky,
+    PubkyCookieAuthFlow, PubkyGrantAuthFlow, PubkyHttpClient, PubkySession, PublicKey,
 };
 use serde_json::json;
 use std::str;
@@ -89,6 +105,15 @@ fn relay_tls_config_without_revocation_check(
 /// Built through `PubkyHttpClient::builder()` rather than `Pubky::new()`/`Pubky::testnet()`
 /// because the pkarr builder is the only seam that reaches the relay client's TLS.
 fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
+    build_pubky_with(use_testnet, |_| Ok(())).map_err(Into::into)
+}
+
+/// [`build_pubky`], with `tune` applied to the builder after the transport setup. Everything a
+/// client needs to reach the network at all is set here; `tune` only adjusts it.
+fn build_pubky_with(
+    use_testnet: bool,
+    tune: impl FnOnce(&mut pubky::PubkyHttpClientBuilder) -> Result<(), PubkyCoreError>,
+) -> Result<Pubky, PubkyCoreError> {
     Lazy::force(&CRYPTO_PROVIDER);
     let extra_roots =
         env_roots::usable(env_roots::env_certificates(|name| std::env::var(name).ok()));
@@ -107,7 +132,7 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     builder.pkarr(|pkarr| {
         let pkarr = pkarr.reqwest_client(relay_http);
         if relays_only {
-            pkarr.no_dht().request_timeout(RELAYS_ONLY_REQUEST_TIMEOUT)
+            pkarr.no_dht().relay_request_timeout(RELAYS_ONLY_REQUEST_TIMEOUT)
         } else {
             pkarr
         }
@@ -115,8 +140,28 @@ fn build_pubky(use_testnet: bool) -> Result<Pubky, Box<dyn std::error::Error>> {
     if use_testnet {
         builder.testnet();
     }
+    // Before `tune`, so `configure_client` overrides both and the untuned client has a deadline.
+    builder
+        .request_timeout(DEFAULT_REQUEST_TIMEOUT)
+        .read_timeout(DEFAULT_READ_TIMEOUT);
+    tune(&mut builder)?;
     Ok(Pubky::with_client(builder.build()?))
 }
+
+/// Every export `block_on`s on the caller's thread, and pubky's own default is no deadline at all:
+/// a homeserver that accepts the connection and never answers parked that thread for good, and a
+/// hosted client (loopky#214) reaches every homeserver its tenants choose. The read timeout is
+/// what catches that; the request timeout is the backstop for a body that trickles. Both reach
+/// the relay long-poll too, where a timeout is `PollError::Timeout` and just polls again.
+///
+/// **The read timeout is one budget until the response head arrives, not a per-read one.** In
+/// reqwest 0.13 it is a single `Sleep` armed when the request starts and polled until the headers
+/// land; the per-read reset only applies to the *response* body (`ReadTimeoutBody`). So the whole
+/// upload, the homeserver's write and its answer all have to fit in it. 120s lets a 32 MiB
+/// `put_bytes_with_session` — Loopky's largest write — through on a ~2.3 Mbit/s uplink, where 30s
+/// needed ~9 and every retry died the same way; the stalled-homeserver bound is still 120s.
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// pkarr's 2s default is shorter than a relay takes to answer for a key it has not cached: it asks
 /// the DHT itself, measured at ~3.1s for a miss against ~0.75s for a cached key. With the DHT on,
@@ -155,9 +200,7 @@ impl NetworkClient {
         }
     }
 
-    pub fn switch_network(&self, use_testnet: bool) {
-        let new_client = build_pubky_or_panic(use_testnet);
-
+    fn replace(&self, new_client: Arc<Pubky>) {
         let mut client = self.client.lock().unwrap();
         *client = new_client;
         // The cached sessions were imported against the outgoing client and belong to the
@@ -166,12 +209,55 @@ impl NetworkClient {
         session_cache::clear();
     }
 
+    pub fn switch_network(&self, use_testnet: bool) {
+        self.replace(build_pubky_or_panic(use_testnet));
+    }
+
+    /// Rebuild the client with upstream's tuning knobs, **on top of** this crate's own transport
+    /// setup — a configured client must still trust `SSL_CERT_FILE` and verify the relay without
+    /// revocation, or `configure_client` silently undoes both.
+    pub fn configure(&self, config: PubkyClientConfig) -> Result<(), PubkyCoreError> {
+        let client = build_pubky_with(config.use_testnet, |builder| {
+            if let Some(host) = config.testnet_host.as_deref() {
+                builder.testnet_with_host(host);
+            }
+            if let Some(timeout) = config.request_timeout_ms {
+                builder.request_timeout(Duration::from_millis(timeout));
+            }
+            if let Some(timeout) = config.read_timeout_ms {
+                builder.read_timeout(Duration::from_millis(timeout));
+            }
+            if let Some(max) = config.pool_max_idle_per_host {
+                let max = usize::try_from(max).map_err(|_| PubkyCoreError::Validation {
+                    details: "pool_max_idle_per_host exceeds the platform limit".to_string(),
+                })?;
+                builder.pool_max_idle_per_host(max);
+            }
+            if let Some(limit) = config.max_error_body_bytes {
+                let limit = usize::try_from(limit).map_err(|_| PubkyCoreError::Validation {
+                    details: "max_error_body_bytes exceeds the platform limit".to_string(),
+                })?;
+                builder.max_error_body_bytes(limit);
+            }
+            if let Some(extra) = config.user_agent_extra.as_deref() {
+                builder.user_agent_extra(extra);
+            }
+            Ok(())
+        })?;
+        self.replace(Arc::new(client));
+        Ok(())
+    }
+
     pub fn get_client(&self) -> Arc<Pubky> {
         self.client.lock().unwrap().clone()
     }
+
+    pub fn get_http_client(&self) -> PubkyHttpClient {
+        self.get_client().client().clone()
+    }
 }
 
-static NETWORK_CLIENT: Lazy<NetworkClient> = Lazy::new(|| NetworkClient::new());
+static NETWORK_CLIENT: Lazy<NetworkClient> = Lazy::new(NetworkClient::new);
 
 /// Installs a `tracing` subscriber once so the pubky SDK's instrumentation (relay polling,
 /// TLS, DHT) is visible. On Android it goes to logcat (tag `pubkycore`); elsewhere to stderr.
@@ -225,6 +311,17 @@ pub fn get_pubky_client() -> Arc<Pubky> {
     Lazy::force(&LOGGING);
     Lazy::force(&CRYPTO_PROVIDER);
     NETWORK_CLIENT.get_client()
+}
+
+pub fn get_pubky_http_client() -> PubkyHttpClient {
+    Lazy::force(&LOGGING);
+    Lazy::force(&CRYPTO_PROVIDER);
+    NETWORK_CLIENT.get_http_client()
+}
+
+#[uniffi::export]
+pub fn configure_client(config: PubkyClientConfig) -> Result<(), PubkyCoreError> {
+    NETWORK_CLIENT.configure(config)
 }
 
 #[uniffi::export]
@@ -655,7 +752,11 @@ pub fn sign_up_grant(
                     Ok(secret) => secret,
                     Err(error) => return create_response_vector(true, error),
                 };
-                let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
+                let session_data =
+                    match session_to_json_with_grant_secret(&session, &grant_secret).await {
+                        Ok(data) => data,
+                        Err(error) => return create_response_vector(true, error),
+                    };
                 create_response_vector(false, session_data)
             }
             Err(error) => create_response_vector(
@@ -777,7 +878,11 @@ pub fn sign_in_grant(secret_key: String, client_id: String) -> Vec<String> {
                     Ok(secret) => secret,
                     Err(error) => return create_response_vector(true, error),
                 };
-                let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
+                let session_data =
+                    match session_to_json_with_grant_secret(&session, &grant_secret).await {
+                        Ok(data) => data,
+                        Err(error) => return create_response_vector(true, error),
+                    };
                 create_response_vector(false, session_data)
             }
             Err(error) => create_response_vector(
@@ -840,6 +945,232 @@ pub fn sign_out(session_secret: String) -> Vec<String> {
 }
 
 #[uniffi::export]
+pub fn list_grants(session_secret: String) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        // Through the cache like every other session-secret entry point, so an expired grant
+        // answers with the `SESSION_REJECTED` marker and a refused proxy with its cause.
+        let listing = session_cache::with_session(&session_secret, |session| async move {
+            GrantManager::new(&session).list().await
+        })
+        .await;
+
+        match listing {
+            Ok(grants) => match serde_json::to_string(&grants) {
+                Ok(json) => create_response_vector(false, json),
+                Err(error) => {
+                    create_response_vector(true, format!("Failed to serialize grants: {}", error))
+                }
+            },
+            Err(error) => create_response_vector(true, error.into_message("Failed to list grants")),
+        }
+    })
+}
+
+#[uniffi::export]
+pub fn revoke_grant(session_secret: String, grant_id: String) -> Vec<String> {
+    let grant_id = match GrantId::try_from(grant_id) {
+        Ok(grant_id) => grant_id,
+        Err(error) => return create_response_vector(true, format!("Invalid grant id: {}", error)),
+    };
+
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let revocation = session_cache::with_session(&session_secret, |session| {
+            let grant_id = grant_id.clone();
+            async move { GrantManager::new(&session).revoke(&grant_id).await }
+        })
+        .await;
+
+        match revocation {
+            Ok(()) => {
+                // Every session minted from that grant is dead now, the caller's own included
+                // when it revoked itself; left cached, the next write would burn a 401 first.
+                session_cache::forget_grant(grant_id.as_str()).await;
+                create_response_vector(false, "Grant revoked".to_string())
+            }
+            Err(error) => {
+                create_response_vector(true, error.into_message("Failed to revoke grant"))
+            }
+        }
+    })
+}
+
+// ---- session cache ---------------------------------------------------------------------------
+
+/// How many imported sessions to keep. A phone needs the default; a process serving many
+/// identities sets it to the number it expects to serve at once, because a session that has been
+/// evicted costs a grant exchange to get back.
+#[uniffi::export]
+pub fn configure_session_cache(capacity: u32) -> Vec<String> {
+    let capacity = session_cache::configure(capacity as usize);
+    create_response_vector(false, format!("Session cache keeps {capacity} sessions"))
+}
+
+/// Revoke the grant behind `session_secret` at its homeserver, with nothing but the secret.
+///
+/// For unlinking a stored credential: it needs no bearer, so it works after the last one
+/// expired, and it is the grant that is revoked — every session minted from it dies with it.
+/// The proof is signed from the stored `PoP` key (`DELETE /auth/grant/session`); a homeserver
+/// that predates proof logout is handled by minting one last bearer and signing out with it.
+///
+/// A grant that is already gone — expired, or revoked from the signer — answers with the
+/// [`session_cache::SESSION_REJECTED`] marker, which for an unlink means "nothing left to do".
+#[uniffi::export]
+pub fn revoke_own_grant(session_secret: String) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        // Before the call, not after: whatever the homeserver answers, this secret must not be
+        // handed to another write from the cache.
+        session_cache::forget(&session_secret);
+
+        let credential = match GrantCredential::from_shared_secret(&session_secret) {
+            Ok(credential) => credential,
+            Err(error) => {
+                return create_response_vector(
+                    true,
+                    format!("Not a grant session secret: {}", full_error_chain(&error)),
+                )
+            }
+        };
+        let session = PubkySession::from_grant_credential(get_pubky_http_client(), credential);
+        let error = match session.signout().await {
+            Ok(()) => return create_response_vector(false, "Grant revoked".to_string()),
+            Err((error, _)) => error,
+        };
+        if !session_cache::is_session_rejected(&error) {
+            return create_response_vector(
+                true,
+                format!("Failed to revoke grant: {}", full_error_chain(&error)),
+            );
+        }
+
+        // Either the homeserver only accepts a bearer-authenticated logout, and this session has
+        // never minted one, or the grant is already dead. Minting tells the two apart.
+        let session = match session_cache::refreshed_session(&session_secret).await {
+            Ok(session) => session,
+            Err(message) => return create_response_vector(true, message),
+        };
+        session_cache::forget(&session_secret);
+        match session.signout().await {
+            Ok(()) => create_response_vector(false, "Grant revoked".to_string()),
+            Err((error, _)) => create_response_vector(
+                true,
+                session_cache::SessionOpError::Op(error).into_message("Failed to revoke grant"),
+            ),
+        }
+    })
+}
+
+// ---- grant auth flows with an id -------------------------------------------------------------
+
+/// Bound the flows kept pending at once, and how long each is kept. `ttl_secs` should not
+/// exceed what the relay holds an approval for (about five minutes). The cap is one budget for
+/// the whole process; a host serving many callers rate-limits `start_grant_auth_flow_handle` per
+/// caller itself, or one caller can fill it.
+#[uniffi::export]
+pub fn configure_grant_auth_flows(max_concurrent: u32, ttl_secs: u32) -> Vec<String> {
+    let (max_flows, ttl) = auth_flow_handles::configure(
+        max_concurrent as usize,
+        Duration::from_secs(u64::from(ttl_secs)),
+    );
+    create_response_vector(
+        false,
+        format!(
+            "Keeping at most {max_flows} pending auth flows for {}s each",
+            ttl.as_secs()
+        ),
+    )
+}
+
+/// Start a grant sign-in that is addressed by id rather than through the process-wide slot.
+///
+/// Returns `{"flow_id", "authorization_url"}`. `relay` overrides the SDK's default relay.
+#[uniffi::export]
+pub fn start_grant_auth_flow_handle(
+    capabilities_str: String,
+    client_id: String,
+    relay: Option<String>,
+) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    // The relay listener is spawned on start, which needs a runtime on the current thread.
+    let _guard = runtime.enter();
+    match auth_flow_handles::start(&capabilities_str, &client_id, relay.as_deref()) {
+        Ok((flow_id, authorization_url)) => create_response_vector(
+            false,
+            json!({
+                "flow_id": flow_id,
+                "authorization_url": authorization_url,
+            })
+            .to_string(),
+        ),
+        Err(message) => create_response_vector(true, message),
+    }
+}
+
+async fn flow_outcome_json(outcome: auth_flow_handles::Outcome) -> Result<String, String> {
+    match outcome {
+        auth_flow_handles::Outcome::Pending => Ok(json!({ "status": "pending" }).to_string()),
+        auth_flow_handles::Outcome::Expired => Ok(json!({ "status": "expired" }).to_string()),
+        auth_flow_handles::Outcome::Approved(session) => {
+            let grant_secret = export_grant_session_secret(&session).await?;
+            let session_json = session_to_json_with_grant_secret(&session, &grant_secret).await?;
+            let session: serde_json::Value = serde_json::from_str(&session_json)
+                .map_err(|error| format!("Failed to serialize session: {error}"))?;
+            Ok(json!({ "status": "approved", "session": session }).to_string())
+        }
+    }
+}
+
+/// One non-blocking look at a flow: `{"status":"pending"}`, `{"status":"expired"}`, or
+/// `{"status":"approved", "session": {…}}` with the same session object
+/// `await_grant_auth_approval` returns. An approval ends the flow, so it is returned exactly
+/// once; so does `expired`, after which the id is unknown. A poll that overlaps another poll or an
+/// await on the same flow answers `pending`.
+#[uniffi::export]
+pub fn poll_grant_auth_flow_handle(flow_id: String) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let outcome = match auth_flow_handles::poll(&flow_id).await {
+            Ok(outcome) => outcome,
+            Err(message) => return create_response_vector(true, message),
+        };
+        match flow_outcome_json(outcome).await {
+            Ok(json) => create_response_vector(false, json),
+            Err(message) => create_response_vector(true, message),
+        }
+    })
+}
+
+/// Block for up to `timeout_secs` on a flow. Same shapes as the poll: a timeout answers
+/// `pending` and leaves the flow waiting, so the caller may block on it again.
+#[uniffi::export]
+pub fn await_grant_auth_flow_handle(flow_id: String, timeout_secs: u32) -> Vec<String> {
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let timeout = Duration::from_secs(u64::from(timeout_secs));
+        let outcome = match auth_flow_handles::await_approval(&flow_id, timeout).await {
+            Ok(outcome) => outcome,
+            Err(message) => return create_response_vector(true, message),
+        };
+        match flow_outcome_json(outcome).await {
+            Ok(json) => create_response_vector(false, json),
+            Err(message) => create_response_vector(true, message),
+        }
+    })
+}
+
+/// Drop a flow and stop listening on its relay channel. An await blocked on it returns.
+#[uniffi::export]
+pub fn cancel_grant_auth_flow_handle(flow_id: String) -> Vec<String> {
+    if auth_flow_handles::cancel(&flow_id) {
+        create_response_vector(false, "Auth flow cancelled".to_string())
+    } else {
+        create_response_vector(true, format!("No auth flow with id {flow_id}"))
+    }
+}
+
+#[uniffi::export]
 pub fn revalidate_session(session_secret: String) -> Vec<String> {
     let runtime = TOKIO_RUNTIME.clone();
     runtime.block_on(async {
@@ -866,10 +1197,10 @@ pub fn revalidate_session(session_secret: String) -> Vec<String> {
                         Err(error) => return create_response_vector(true, error),
                     },
                 };
-                create_response_vector(
-                    false,
-                    session_to_json_with_grant_secret(&session, &grant_secret),
-                )
+                match session_to_json_with_grant_secret(&session, &grant_secret).await {
+                    Ok(data) => create_response_vector(false, data),
+                    Err(error) => create_response_vector(true, error),
+                }
             }
             // The same marker the import path uses: this is the other way the homeserver says
             // "sign in again", and a consumer should not need two strings to recognise one answer.
@@ -1000,13 +1331,10 @@ pub fn get(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         match str::from_utf8(&bytes) {
@@ -1037,13 +1365,10 @@ pub fn get_bytes(url: String) -> Vec<String> {
             }
         };
 
-        let bytes = match response.bytes().await {
+        let bytes = match body_limit::read_capped(response).await {
             Ok(b) => b,
             Err(e) => {
-                return create_response_vector(
-                    true,
-                    format!("Error reading response: {}", full_error_chain(&e)),
-                )
+                return create_response_vector(true, format!("Error reading response: {}", e))
             }
         };
         let base64_str = base64_engine.encode(&bytes);
@@ -1272,6 +1597,47 @@ pub fn auth(url: String, secret_key: String) -> Vec<String> {
     })
 }
 
+/// Approve only the requested capabilities selected by the user.
+///
+/// `approved_capabilities` uses Pubky's comma-separated `scope:actions`
+/// format. It may be empty to approve the authentication request without any
+/// capabilities. The upstream SDK rejects capabilities that exceed the
+/// original request.
+#[uniffi::export]
+pub fn auth_with_capabilities(
+    url: String,
+    secret_key: String,
+    approved_capabilities: String,
+) -> Vec<String> {
+    let capabilities = match Capabilities::try_from(approved_capabilities.as_str()) {
+        Ok(capabilities) => capabilities,
+        Err(error) => {
+            return create_response_vector(true, format!("Invalid approved capabilities: {error}"))
+        }
+    };
+
+    let runtime = TOKIO_RUNTIME.clone();
+    runtime.block_on(async {
+        let client = get_pubky_client();
+        let keypair = match get_keypair_from_secret_key(&secret_key) {
+            Ok(keypair) => keypair,
+            Err(error) => return create_response_vector(true, error),
+        };
+
+        let signer = client.signer(keypair);
+        match signer
+            .approve_auth_with_capabilities(&url, &capabilities)
+            .await
+        {
+            Ok(_) => create_response_vector(false, "Authorization success".to_string()),
+            Err(error) => create_response_vector(
+                true,
+                format!("Authorization failure: {}", full_error_chain(&error)),
+            ),
+        }
+    })
+}
+
 #[uniffi::export]
 pub fn parse_auth_url(url: String) -> Vec<String> {
     let parsed_details = match parse_pubky_auth_url(&url) {
@@ -1470,7 +1836,11 @@ pub fn await_grant_auth_approval() -> Vec<String> {
                     Ok(secret) => secret,
                     Err(error) => return create_response_vector(true, error),
                 };
-                let session_data = session_to_json_with_grant_secret(&session, &grant_secret);
+                let session_data =
+                    match session_to_json_with_grant_secret(&session, &grant_secret).await {
+                        Ok(data) => data,
+                        Err(error) => return create_response_vector(true, error),
+                    };
                 create_response_vector(false, session_data)
             }
             Err(e) => create_response_vector(

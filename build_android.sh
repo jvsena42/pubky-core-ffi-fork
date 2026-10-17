@@ -124,4 +124,11 @@ fi
 
 mv "$GENERATED_KOTLIN" "$BASE_DIR/pubkycore.kt"
 
+# The four libraries and the binding were just produced from one source, so this can only fail
+# on a build-tool mistake here — it exists for the committed tree, where a merge can resolve a
+# library to another branch's build, and runs here so every path that writes a row checks it.
+echo "Checking the libraries export what the binding resolves..."
+python3 ./scripts/check_ffi_exports.py --bindings "$BASE_DIR/pubkycore.kt" \
+    "$JNILIBS_DIR"/*/libpubkycore.so
+
 echo "Android build process completed successfully!"

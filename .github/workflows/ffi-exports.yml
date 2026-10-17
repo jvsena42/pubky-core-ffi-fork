@@ -1,0 +1,77 @@
+# Every committed binary row exports exactly what the committed bindings resolve.
+#
+# The build workflows check the row they just built; this checks what is *in the tree*, which
+# is what a consumer gets. A merge can resolve a binary to the other branch's build without any
+# source changing — it happened on #17, where the macOS, Windows and iOS rows came back as #16's
+# and the Kotlin binding's load-time checksum check would have thrown on a Mac's first call —
+# and nothing but a consumer's first call would have said so. Runs on every pull request and
+# push, with no path filter, because the failure is a binary nobody rebuilt.
+#
+# No third-party actions, for the reason the build workflows give: these rows are committed
+# into consumers as blobs a reviewer approves by trust.
+name: FFI exports
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  committed-rows:
+    name: committed rows match the bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Loaded, so the checksum *values* are compared too: a signature change that kept its name
+      # passes the name check and fails here, as it would in JNA at a consumer's first call.
+      - name: Every binding agrees with the Linux row, checksum values included
+        run: |
+          for binding in bindings/android/pubkycore.kt bindings/ios/pubkycore.swift bindings/python/pubkycore/pubkycore.py; do
+            python3 scripts/check_ffi_exports.py --bindings "$binding" --load bindings/desktop/linux-x86-64/libpubkycore.so
+          done
+
+      - name: Every committed row exports what the header declares
+        run: |
+          python3 scripts/check_ffi_exports.py \
+            bindings/desktop/darwin-aarch64/libpubkycore.dylib \
+            bindings/desktop/linux-x86-64/libpubkycore.so \
+            bindings/desktop/win32-x86-64/pubkycore.dll \
+            bindings/python/pubkycore/libpubkycore.dylib \
+            bindings/android/jniLibs/arm64-v8a/libpubkycore.so \
+            bindings/android/jniLibs/armeabi-v7a/libpubkycore.so \
+            bindings/android/jniLibs/x86/libpubkycore.so \
+            bindings/android/jniLibs/x86_64/libpubkycore.so \
+            bindings/ios/PubkyCore.xcframework/ios-arm64/libpubkycore.a \
+            bindings/ios/PubkyCore.xcframework/ios-arm64-simulator/libpubkycore.a
+
+  # The other desktop rows can only be loaded on their own OS. No build here: these load what is
+  # committed. The Android and iOS rows cannot be loaded on any runner and get the name check above.
+  committed-row-values:
+    name: committed ${{ matrix.row }} checksum values match the bindings
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            row: darwin-aarch64
+            python: python3
+            binaries: bindings/desktop/darwin-aarch64/libpubkycore.dylib bindings/python/pubkycore/libpubkycore.dylib
+          - os: windows-latest
+            row: win32-x86-64
+            python: python
+            binaries: bindings/desktop/win32-x86-64/pubkycore.dll
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Loaded, against every binding
+        shell: bash
+        run: |
+          for binding in bindings/android/pubkycore.kt bindings/ios/pubkycore.swift bindings/python/pubkycore/pubkycore.py; do
+            ${{ matrix.python }} scripts/check_ffi_exports.py --bindings "$binding" --load ${{ matrix.binaries }}
+          done

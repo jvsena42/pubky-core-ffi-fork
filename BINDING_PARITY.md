@@ -1,0 +1,61 @@
+# Pubky 0.16 Binding Parity
+
+This project binds Pubky's high-level client capabilities rather than exposing
+Rust implementation types such as `RequestBuilder`, generic serde helpers, or
+builder closures. Generated Swift, Kotlin, and Python APIs are produced from
+the same UniFFI surface.
+
+| Pubky capability | FFI surface |
+| --- | --- |
+| Mainnet/testnet and HTTP configuration | `configure_client`, `switch_network` |
+| Response body ceiling | `configure_max_body_bytes` |
+| Public byte reads | `public_get_bytes` |
+| Public existence and metadata | `public_exists`, `public_stats` |
+| Public pagination | `public_list`, `StorageListOptions`, `StorageListPage` |
+| Authenticated public/private byte reads | `session_get_bytes` |
+| Authenticated existence and metadata | `session_exists`, `session_stats` |
+| Authenticated pagination | `session_list` |
+| Authenticated binary writes/deletes | `session_put_bytes`, `session_delete` |
+| Grant signin/signup flow | `start_grant_auth_flow_with_config` |
+| Grant flow persistence | `save_grant_auth_flow`, `restore_grant_auth_flow` |
+| Blocking/non-blocking Grant completion | `await_grant_auth_flow`, `poll_grant_auth_flow` |
+| Grant flow cancellation | `cancel_grant_auth_flow` |
+| Signed/HPKE grant approvals | `GrantApprovalMode`, `GrantAuthFlowConfig.approval_format` |
+| User-selected auth approval | `auth_with_capabilities` |
+| Scoped encryption-key recovery | `grant_encryption_key_scopes`, `derive_grant_encryption_key`, `grant_signed_approval` |
+| Custom Grant proofs | `create_custom_grant_proof`, `verify_custom_grant_proof` |
+| Blocking direct signin | `sign_in_grant_blocking`, `sign_in_cookie_blocking` |
+| Historical/live event streams | `start_event_stream`, `stop_event_stream`, `stop_all_event_streams` |
+| Private event streams | `EventStreamConfig.session_secret` |
+| WebDAV locks | `session_lock`, `PubkyStorageLock` methods |
+| Typed failures | `PubkyCoreError` |
+
+The legacy string-vector APIs remain available unchanged for downstream
+compatibility.
+
+## Fork additions for a multi-identity process (loopky#214)
+
+These keep the legacy `[error, data]` string-vector contract, because the consumer that needs
+them (`UniffiPubkyClient` in loopky) reads nothing else.
+
+| Need | FFI surface |
+| --- | --- |
+| Many grant sign-ins pending at once, each with its own id | `start_grant_auth_flow_handle`, `poll_grant_auth_flow_handle`, `await_grant_auth_flow_handle`, `cancel_grant_auth_flow_handle` |
+| Bounding the pending flows and their lifetime | `configure_grant_auth_flows` |
+| A session per identity, kept across calls | `configure_session_cache` (LRU capacity; minting is single-flight per secret) |
+| Unlinking: revoke a grant from its stored secret, after the bearer expired | `revoke_own_grant` |
+
+## Intentionally internal Rust primitives
+
+The following are implementation mechanisms rather than missing mobile client
+capabilities:
+
+- `reqwest::RequestBuilder`, `Response`, and generic request bodies
+- Generic `get_json<T>` / `put_json<T>` (mobile callers encode and decode their
+  own bytes or JSON)
+- PKARR builder closures (network selection remains exposed)
+- Raw encrypted relay channel actors used underneath authentication flows
+- Delegated browser proof-of-possession callbacks; the mobile bindings expose
+  local-key Grant flows
+- Filesystem-path session and recovery helpers; mobile apps persist returned
+  secrets and recovery bytes in platform-managed storage

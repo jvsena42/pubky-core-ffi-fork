@@ -1,0 +1,120 @@
+# The two Apple rows: the macOS desktop cdylib and the iOS XCFramework.
+#
+# Both need Apple's toolchain — `aarch64-apple-darwin` and the two `aarch64-apple-ios*` targets
+# link through Xcode's `ld`, and `xcodebuild -create-xcframework` exists nowhere else — so this is
+# the only place either row can be produced when the developer's machine is not a Mac. It is the
+# Apple sibling of `desktop-windows.yml`, and follows its rules for the same reason.
+#
+# **No third-party actions, deliberately.** What this produces is committed into a consumer as a
+# binary blob that a reviewer approves by trust, so every action in the chain is supply-chain
+# surface for that blob. `macos-14` already ships rustup and a stable toolchain, so the toolchain
+# needs no action; `checkout` and `upload-artifact` are first-party.
+name: Desktop (macOS) and iOS
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build_desktop.sh'
+      - 'build_ios.sh'
+      - '.github/workflows/desktop-macos.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  darwin-aarch64:
+    name: darwin-aarch64/libpubkycore.dylib
+    # Apple Silicon: `build_desktop.sh macos` refuses an Intel host, and Intel Macs are not a
+    # target (see the script's header).
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which toolchain
+        run: |
+          rustc --version
+          cargo --version
+          uname -m
+
+      - name: Build
+        run: ./build_desktop.sh macos
+
+      # That it loads, resolves every import and runs its initialisers — the one check the build
+      # itself cannot make. `ctypes` opens it the same way JNA will.
+      - name: It loads
+        run: |
+          python3 - <<'PY'
+          import ctypes, os
+          dylib = os.path.abspath("bindings/desktop/darwin-aarch64/libpubkycore.dylib")
+          ctypes.CDLL(dylib)
+          print("loaded")
+          PY
+
+      - name: It is arm64 only
+        run: |
+          lipo -info bindings/desktop/darwin-aarch64/libpubkycore.dylib
+          lipo -info bindings/desktop/darwin-aarch64/libpubkycore.dylib | grep -q 'arm64'
+
+      # The build script copies the dylib into the Python package, and the module resolves every
+      # function's checksum symbol at import. So this is the check that the committed
+      # `pubkycore.py` and the dylib beside it are from the same surface — the one failure a
+      # regenerated binding with a stale dylib produces, and the only step that would see it.
+      - name: The Python package imports against it
+        run: |
+          cmp bindings/desktop/darwin-aarch64/libpubkycore.dylib bindings/python/pubkycore/libpubkycore.dylib
+          cd bindings/python
+          python3 -c 'from pubkycore.pubkycore import generate_secret_key; print(generate_secret_key()[0])'
+
+      # The artifact is downloaded and committed in a second step rather than by this job: a
+      # workflow that writes a binary back into the repository is a workflow that can be made to
+      # commit one, and this one runs on pull requests.
+      # One file, committed to two places: `bindings/desktop/darwin-aarch64/` and
+      # `bindings/python/pubkycore/`.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pubkycore-darwin-aarch64
+          path: bindings/desktop/darwin-aarch64/libpubkycore.dylib
+          if-no-files-found: error
+
+  ios-xcframework:
+    name: ios/PubkyCore.xcframework
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which toolchain
+        run: |
+          rustc --version
+          cargo --version
+          xcodebuild -version
+
+      # `build_ios.sh` rewrites `crate-type` in Cargo.toml to add `staticlib` for the duration of
+      # the build; the checkout is disposable, so that edit is harmless here. It also regenerates
+      # the Swift bindings beside the framework, which is why the whole directory is uploaded:
+      # the `.a` files, the headers inside the framework and `pubkycore.swift` are one artifact,
+      # built from one commit, and must be committed together.
+      - name: Build
+        run: ./build_ios.sh
+
+      - name: What was built
+        run: |
+          ls -la bindings/ios
+          cat bindings/ios/PubkyCore.xcframework/Info.plist
+          lipo -info bindings/ios/PubkyCore.xcframework/ios-arm64/libpubkycore.a
+          lipo -info bindings/ios/PubkyCore.xcframework/ios-arm64-simulator/libpubkycore.a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pubkycore-ios
+          path: bindings/ios
+          if-no-files-found: error

@@ -199,7 +199,7 @@ mod tests {
     }
 
     // Guard the bare-z32 public key output contract (see README "String
-    // Contracts"). pubky 0.10.x renders PublicKey::to_string() as
+    // Contracts"). pubky 0.16.x renders PublicKey::to_string() as
     // "pubky<z32>" (57 chars); FFI outputs must stay bare z32 (52 chars) or
     // downstream pubky:// URL building breaks. We assert on length rather
     // than a "pubky" prefix because all five prefix letters are in the
@@ -371,6 +371,15 @@ mod tests {
             .as_str()
             .expect("grant_secret missing")
             .to_string();
+        assert_eq!(
+            session["client_id"].as_str().expect("client_id missing"),
+            CLIENT_ID
+        );
+        assert!(session["homeserver"].as_str().is_some());
+        assert!(session["grant_id"].as_str().is_some());
+        assert!(session["token_expires_at"].as_u64().is_some());
+        assert!(session["grant_expires_at"].as_u64().is_some());
+        assert!(session["created_at"].as_u64().is_some());
 
         // Test sign out
         let sign_out_result = sign_out(grant_secret);
@@ -535,7 +544,7 @@ mod tests {
         assert!(json.get("homeserver").is_none());
     }
 
-    // Test auth URL parsing (pubky 0.10 Grant signin format)
+    // Test auth URL parsing (pubky 0.16 Grant signin format)
     #[test]
     fn test_parse_auth_url_signin_grant_host() {
         let client_pubky = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
@@ -548,6 +557,25 @@ mod tests {
         assert_eq!(json["client_id"], "pubky-ring");
         assert_eq!(json["client_public_key"], client_pubky);
         assert!(json.get("homeserver").is_none());
+        assert_eq!(json["approval_format"], "bare_grant");
+    }
+
+    #[test]
+    fn test_parse_auth_url_signed_approval_grant() {
+        let client_pubky = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
+        let ephemeral_public_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let test_url = format!(
+            "pubkyauth://signin_grant?caps=%2Fpriv%2Fexample%2F%3Are&relay=https%3A%2F%2Fhttprelay.pubky.app%2Finbox&cid=example.app&cpk={client_pubky}&af=v1&epk={ephemeral_public_key}"
+        );
+        let result = parse_auth_url(test_url);
+        assert_eq!(result[0], "false", "unexpected error: {}", result[1]);
+
+        let json: serde_json::Value = serde_json::from_str(&result[1]).unwrap();
+        assert_eq!(json["kind"], "signin_grant");
+        assert_eq!(json["approval_format"], "signed_approval_v1");
+        assert_eq!(json["ephemeral_public_key"], ephemeral_public_key);
+        assert!(json.get("secret").is_none());
+        assert_eq!(json["capabilities"][0]["permission"], "re");
     }
 
     // Test auth URL parsing (pubky 0.9.1 signup format with hs/st params)
@@ -574,7 +602,7 @@ mod tests {
         assert!(json.get("signup_token").is_none());
     }
 
-    // Test auth URL parsing (pubky 0.10 Grant signup format with hs/st params)
+    // Test auth URL parsing (pubky 0.16 Grant signup format with hs/st params)
     #[test]
     fn test_parse_auth_url_signup_grant() {
         let client_pubky = "ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy";
@@ -658,6 +686,28 @@ mod tests {
         let grant_result = await_grant_auth_approval();
         assert_eq!(grant_result[0], "true");
         assert_eq!(grant_result[1], "No auth flow in progress");
+    }
+
+    #[test]
+    fn test_grant_management_rejects_invalid_inputs() {
+        let list_result = list_grants("not-a-grant-secret".to_string());
+        assert_eq!(list_result[0], "true");
+        assert!(
+            list_result[1].contains("Failed to import session"),
+            "unexpected error: {}",
+            list_result[1]
+        );
+
+        let revoke_result = revoke_grant(
+            "not-a-grant-secret".to_string(),
+            "not-a-grant-id-over-22-chars".to_string(),
+        );
+        assert_eq!(revoke_result[0], "true");
+        assert!(
+            revoke_result[1].contains("Invalid grant id"),
+            "unexpected error: {}",
+            revoke_result[1]
+        );
     }
 
     // Test error cases
@@ -779,6 +829,18 @@ mod tests {
         let result = validate_mnemonic_phrase(wrong_count.to_string());
         assert_eq!(result[0], "false");
         assert_eq!(result[1], "false");
+    }
+
+    #[test]
+    fn test_auth_with_capabilities_rejects_invalid_capabilities_before_authorizing() {
+        let result = auth_with_capabilities(
+            "not-a-url".to_string(),
+            "not-a-secret-key".to_string(),
+            "not-a-capability".to_string(),
+        );
+
+        assert_eq!(result[0], "true");
+        assert!(result[1].starts_with("Invalid approved capabilities:"));
     }
 
     // Test mnemonic consistency
@@ -904,6 +966,133 @@ mod tests {
         drop(GRANT_AUTH_FLOW.lock().unwrap().take());
     }
 
+    /// Accepts the connection and never writes a byte: the homeserver the deadline exists for.
+    async fn silent_server() -> url::Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        url::Url::parse(&format!("http://{address}/")).unwrap()
+    }
+
+    async fn get_from(pubky: &Pubky, url: url::Url) -> Result<reqwest::Response, String> {
+        let request = pubky
+            .client()
+            .request_async(reqwest::Method::GET, url)
+            .await
+            .map_err(|error| full_error_chain(&error))?;
+        request
+            .send()
+            .await
+            .map_err(|error| full_error_chain(&error))
+    }
+
+    /// Every export blocks the caller's thread on the request, so a homeserver that never answers
+    /// used to park that thread for good — pubky's own default is no deadline at all.
+    #[test]
+    fn test_an_untuned_client_gives_up_on_a_homeserver_that_never_answers() {
+        let pubky = build_pubky_with(false, |_| Ok(())).expect("client");
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(
+                DEFAULT_READ_TIMEOUT + Duration::from_secs(15),
+                get_from(&pubky, url),
+            )
+            .await
+        });
+
+        let error = outcome
+            .expect("the default deadline must fire before the test's own")
+            .expect_err("a server that never writes cannot succeed");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+    }
+
+    /// `configure_client` stays the override: its timeouts replace the defaults rather than
+    /// adding to them.
+    #[test]
+    fn test_a_configured_timeout_overrides_the_default_deadline() {
+        let pubky = build_pubky_with(false, |builder| {
+            builder.read_timeout(Duration::from_millis(200));
+            Ok(())
+        })
+        .expect("client");
+        let started = std::time::Instant::now();
+        let outcome = TOKIO_RUNTIME.block_on(async {
+            let url = silent_server().await;
+            tokio::time::timeout(Duration::from_secs(5), get_from(&pubky, url)).await
+        });
+
+        let error = outcome
+            .expect("the configured deadline fires")
+            .expect_err("never answers");
+        assert!(
+            error.contains("timed out") || error.contains("timeout"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    /// The resume state holds the flow's `PoP` key and the relay secret. A cancelled sign-in must
+    /// not leave them behind until the next start, and a loop still resuming it must stop.
+    #[test]
+    fn test_cancelling_a_grant_flow_drops_its_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        let pending = grant_resume::current().expect("a local grant flow is remembered");
+        assert!(grant_resume::is_current(pending.generation));
+
+        auth_flow::cancel_grant_auth_flow();
+
+        assert!(GRANT_AUTH_FLOW.lock().unwrap().is_none());
+        assert!(grant_resume::current().is_none());
+        assert!(
+            !grant_resume::is_current(pending.generation),
+            "a resume loop for the cancelled flow must stop at its next boundary"
+        );
+    }
+
+    /// Starting a flow through the typed API replaces whatever was in the slot, so the state saved
+    /// for resuming the replaced flow is dead with it.
+    #[test]
+    fn test_replacing_the_grant_flow_drops_the_previous_resume_state() {
+        let _lock = auth_flow_lock();
+
+        assert_eq!(
+            start_grant_auth_flow(
+                "/pub/pubky-core-ffi.test/:rw".to_string(),
+                CLIENT_ID.to_string()
+            )[0],
+            "false"
+        );
+        assert!(grant_resume::current().is_some());
+
+        auth_flow::start_grant_auth_flow_with_config(GrantAuthFlowConfig {
+            capabilities: "/pub/pubky-core-ffi.test/:rw".to_string(),
+            client_id: CLIENT_ID.to_string(),
+            ..GrantAuthFlowConfig::default()
+        })
+        .expect("a typed flow starts without network work");
+
+        assert!(grant_resume::current().is_none());
+        auth_flow::cancel_grant_auth_flow();
+    }
+
     /// The premise of the resume, against the real relay and homeserver: a flow rejoined after its
     /// listener died still collects an approval posted while nobody was polling. Needs a signer
     /// registered on its homeserver, as `PUBKY_TEST_SIGNER_MNEMONIC`.
@@ -949,6 +1138,539 @@ mod tests {
         assert!(
             grant_resume::current().is_none(),
             "state is dropped once the flow completes"
+        );
+    }
+
+    // --- grant auth flows with an id ------------------------------------------------------------
+
+    static HANDLE_FLOW_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The handle tests share one process-wide flow map and its limits.
+    fn handle_flow_lock() -> std::sync::MutexGuard<'static, ()> {
+        let guard = HANDLE_FLOW_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        auth_flow_handles::reset_for_tests();
+        guard
+    }
+
+    fn start_handle_flow() -> (String, String) {
+        let started = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(started[0], "false", "start: {:?}", started);
+        let json: serde_json::Value = serde_json::from_str(&started[1]).unwrap();
+        (
+            json["flow_id"].as_str().expect("flow_id").to_string(),
+            json["authorization_url"]
+                .as_str()
+                .expect("authorization_url")
+                .to_string(),
+        )
+    }
+
+    /// The reason the handles exist: two sign-ins at once are two flows, not one replacing the
+    /// other. The global slot is left alone.
+    #[test]
+    fn test_two_handle_flows_run_side_by_side() {
+        let _lock = handle_flow_lock();
+        let _global = auth_flow_lock();
+        let (first, first_url) = start_handle_flow();
+        let (second, second_url) = start_handle_flow();
+        assert_ne!(first, second);
+        assert_ne!(first_url, second_url);
+        assert!(first_url.starts_with("pubkyauth://"), "{first_url}");
+        assert_eq!(auth_flow_handles::pending_count(), 2);
+        assert!(
+            grant_resume::current().is_none(),
+            "a handle flow must not touch the global slot"
+        );
+        assert!(GRANT_AUTH_FLOW.lock().unwrap().is_none());
+
+        for id in [&first, &second] {
+            let polled = poll_grant_auth_flow_handle(id.clone());
+            assert_eq!(polled[0], "false", "poll: {:?}", polled);
+            assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        }
+
+        assert_eq!(cancel_grant_auth_flow_handle(first.clone())[0], "false");
+        let gone = poll_grant_auth_flow_handle(first.clone());
+        assert_eq!(gone[0], "true");
+        assert!(gone[1].contains("No auth flow with id"), "{}", gone[1]);
+        assert_eq!(cancel_grant_auth_flow_handle(first)[0], "true");
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(second)[0], "false");
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// A bounded await that times out leaves the flow where it was: still pending, still
+    /// pollable, and still able to collect an approval posted after the timeout.
+    #[test]
+    fn test_a_timed_out_handle_await_keeps_the_flow_pending() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let started = std::time::Instant::now();
+        let waited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#);
+        assert!(started.elapsed() >= std::time::Duration::from_secs(1));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "poll after timeout: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        assert!(cancel_grant_auth_flow_handle(id)[0] == "false");
+    }
+
+    /// A timed-out await must not have replaced the listener: the SDK's listener acks the approval
+    /// before handing it over, so a listener dropped between the two loses it for good.
+    #[test]
+    fn test_a_timed_out_handle_await_keeps_its_listener() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        auth_flow_handles::RESTORES.store(0, Ordering::SeqCst);
+        let (id, _) = start_handle_flow();
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#, "{:?}", waited);
+
+        assert_eq!(
+            auth_flow_handles::RESTORES.load(Ordering::SeqCst),
+            0,
+            "the timeout restored a new listener instead of keeping the one it had"
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
+    /// Two status polls overlapping — a second tab, a reload mid-exchange — is not a failure: the
+    /// second has nothing new to report. Two blocking awaits do conflict, and the second is
+    /// refused. The flow is held the way an in-flight poll holds it.
+    #[test]
+    fn test_a_poll_overlapping_another_answers_pending() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let held = match auth_flow_handles::take(&id) {
+            auth_flow_handles::Taken::Flow { flow, .. } => flow,
+            _ => panic!("the flow is there to be taken"),
+        };
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "poll while busy: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+
+        let awaited = await_grant_auth_flow_handle(id.clone(), 1);
+        assert_eq!(awaited[0], "true", "await while busy: {:?}", awaited);
+        assert!(
+            awaited[1].contains("already being awaited"),
+            "{}",
+            awaited[1]
+        );
+
+        assert!(auth_flow_handles::give_back(&id, held));
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[1], r#"{"status":"pending"}"#, "{:?}", polled);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
+    /// Expiry is decided on every call, not only when a `start` happens to sweep: a caller still
+    /// polling an expired id is told so once, and the flow — listener and key material — is gone
+    /// with that answer. A cancel sweeps the others too.
+    #[test]
+    fn test_polling_an_expired_handle_flow_says_so_once() {
+        let _lock = handle_flow_lock();
+        let (stale, _) = start_handle_flow();
+        let (other, _) = start_handle_flow();
+        // Shortened after the starts: a start sweeps too, and would take `stale` first.
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(stale.clone());
+        assert_eq!(polled[0], "false", "poll past the TTL: {:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"expired"}"#);
+        let gone = poll_grant_auth_flow_handle(stale);
+        assert_eq!(gone[0], "true");
+        assert!(gone[1].contains("No auth flow with id"), "{}", gone[1]);
+
+        // `other` was swept by that poll, not by a start.
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+        let awaited = await_grant_auth_flow_handle(other.clone(), 1);
+        assert_eq!(awaited[0], "true", "{:?}", awaited);
+
+        assert_eq!(configure_grant_auth_flows(4, 300)[0], "false");
+        let (third, _) = start_handle_flow();
+        let (fourth, _) = start_handle_flow();
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert_eq!(
+            cancel_grant_auth_flow_handle(third)[0],
+            "true",
+            "an expired flow is swept before the cancel looks for it"
+        );
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            0,
+            "a cancel sweeps expired flows, {fourth} included"
+        );
+    }
+
+    /// Every pending flow holds a relay channel and a `PoP` key, so there is a ceiling, and a
+    /// flow nobody approved within the relay's window is swept rather than kept forever.
+    #[test]
+    fn test_handle_flows_are_capped_and_expire() {
+        let _lock = handle_flow_lock();
+        assert_eq!(configure_grant_auth_flows(1, 300)[0], "false");
+        let (first, _) = start_handle_flow();
+        let refused = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(refused[0], "true");
+        assert!(
+            refused[1].contains("Too many pending auth flows"),
+            "{}",
+            refused[1]
+        );
+        assert_eq!(cancel_grant_auth_flow_handle(first)[0], "false");
+
+        // A zero TTL makes every flow expired on the next sweep, which a start performs.
+        assert_eq!(configure_grant_auth_flows(1, 0)[0], "false");
+        let (stale, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let (fresh, _) = start_handle_flow();
+        assert_ne!(stale, fresh);
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            1,
+            "the stale flow was swept"
+        );
+        let gone = poll_grant_auth_flow_handle(stale);
+        assert_eq!(gone[0], "true");
+        // That poll swept `fresh` as well — under a zero TTL every call is a sweep.
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "true");
+    }
+
+    fn start_handle_flow_on(relay: &str) -> String {
+        let started = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            Some(relay.to_string()),
+        );
+        assert_eq!(started[0], "false", "start: {:?}", started);
+        let json: serde_json::Value = serde_json::from_str(&started[1]).unwrap();
+        json["flow_id"].as_str().expect("flow_id").to_string()
+    }
+
+    /// A local relay that answers every long-poll with `body` at once and counts the requests.
+    fn answering_relay(
+        body: &'static str,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/inbox", listener.local_addr().unwrap());
+        let requests = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                counted.fetch_add(1, Ordering::SeqCst);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        (url, requests)
+    }
+
+    /// The relay hands the listener a message and the listener ACKs it there, so from then on it
+    /// exists only in the flow. A poll arriving after the TTL must hand over what arrived, not
+    /// answer `expired` and drop it: that is an approved sign-in lost at 5:01. The message here
+    /// is not a valid approval — offline, there is no signer — so what arrives is its failure,
+    /// which is the same channel an approval comes through.
+    #[test]
+    fn test_an_expired_handle_flow_hands_over_what_already_arrived() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        let (relay, requests) = answering_relay("not an approval");
+        let id = start_handle_flow_on(&relay);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while requests.load(Ordering::SeqCst) == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the listener never polled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(
+            polled[0], "true",
+            "what arrived, not `expired`: {:?}",
+            polled
+        );
+        assert!(
+            polled[1].starts_with("Auth approval failed"),
+            "{}",
+            polled[1]
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// A poll that finds an expired flow in another call's hands leaves it there: that call may be
+    /// mid-exchange with an approval, and it decides the flow. Once it is put back, the next poll
+    /// looks and says `expired`.
+    #[test]
+    fn test_an_expired_flow_in_another_calls_hands_is_left_to_it() {
+        let _lock = handle_flow_lock();
+        let (id, _) = start_handle_flow();
+        let held = match auth_flow_handles::take(&id) {
+            auth_flow_handles::Taken::Flow { flow, .. } => flow,
+            _ => panic!("the flow is there to be taken"),
+        };
+        assert_eq!(configure_grant_auth_flows(4, 0)[0], "false");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[0], "false", "{:?}", polled);
+        assert_eq!(polled[1], r#"{"status":"pending"}"#);
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            1,
+            "not removed under the holder"
+        );
+
+        assert!(auth_flow_handles::give_back(&id, held));
+        let polled = poll_grant_auth_flow_handle(id.clone());
+        assert_eq!(polled[1], r#"{"status":"expired"}"#, "{:?}", polled);
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+    }
+
+    /// The sweep cannot look in a flow's channel, so it leaves an expired flow for its owner for
+    /// one more TTL, and only then drops it. A flow kept that way no longer holds a place under
+    /// the cap.
+    #[test]
+    fn test_the_sweep_leaves_an_expired_flow_for_its_owner() {
+        let _lock = handle_flow_lock();
+        assert_eq!(configure_grant_auth_flows(1, 1)[0], "false");
+        let (kept, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+
+        let (fresh, _) = start_handle_flow();
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            2,
+            "a start past the TTL kept the expired flow"
+        );
+        assert_eq!(cancel_grant_auth_flow_handle(fresh)[0], "false");
+        assert_eq!(
+            poll_grant_auth_flow_handle(kept)[1],
+            r#"{"status":"expired"}"#
+        );
+
+        let (dropped, _) = start_handle_flow();
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        let _ = poll_grant_auth_flow_handle("someone-else".to_string());
+        assert_eq!(
+            auth_flow_handles::pending_count(),
+            0,
+            "swept after two TTLs"
+        );
+        assert_eq!(poll_grant_auth_flow_handle(dropped)[0], "true");
+    }
+
+    /// A relay that refuses every connection kills each restored listener on arrival. The await
+    /// backs off between restores (1, 2, 4 s …) rather than restoring on every 200 ms tick, and
+    /// still leaves a live listener behind when its deadline passes.
+    #[test]
+    fn test_a_handle_await_backs_off_while_the_relay_is_down() {
+        use std::sync::atomic::Ordering;
+        let _lock = handle_flow_lock();
+        let relay = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/inbox", listener.local_addr().unwrap())
+        };
+        let id = start_handle_flow_on(&relay);
+        auth_flow_handles::RESTORES.store(0, Ordering::SeqCst);
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 4);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        assert_eq!(waited[1], r#"{"status":"pending"}"#);
+        let restores = auth_flow_handles::RESTORES.load(Ordering::SeqCst);
+        assert!(
+            (1..=3).contains(&restores),
+            "{restores} restores in 4s: one per tick would be ~20"
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 1);
+        assert_eq!(cancel_grant_auth_flow_handle(id)[0], "false");
+    }
+
+    #[test]
+    fn test_handle_flow_rejects_bad_inputs_before_opening_a_channel() {
+        let _lock = handle_flow_lock();
+        let bad_caps = start_grant_auth_flow_handle(
+            "not-a-capability".to_string(),
+            CLIENT_ID.to_string(),
+            None,
+        );
+        assert_eq!(bad_caps[0], "true");
+        assert!(
+            bad_caps[1].starts_with("Invalid capabilities"),
+            "{}",
+            bad_caps[1]
+        );
+
+        let bad_relay = start_grant_auth_flow_handle(
+            "/pub/pubky-core-ffi.test/:rw".to_string(),
+            CLIENT_ID.to_string(),
+            Some("not a url".to_string()),
+        );
+        assert_eq!(bad_relay[0], "true");
+        assert!(
+            bad_relay[1].starts_with("Invalid relay URL"),
+            "{}",
+            bad_relay[1]
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+
+        let unknown = await_grant_auth_flow_handle("nope".to_string(), 1);
+        assert_eq!(unknown[0], "true");
+        assert!(
+            unknown[1].contains("No auth flow with id nope"),
+            "{}",
+            unknown[1]
+        );
+    }
+
+    /// The whole loop against the real relay and homeserver: a signer approves a handle flow's
+    /// URL, the poll hands the session out once, and the session can write.
+    #[test]
+    fn test_handle_flow_hands_an_approval_out_exactly_once() {
+        let _lock = handle_flow_lock();
+        let (signer, signer_secret, homeserver) = get_test_setup();
+        if sign_up_for_test(signer_secret.clone(), homeserver).is_none() {
+            return;
+        }
+        let (id, url) = start_handle_flow();
+        assert_eq!(
+            poll_grant_auth_flow_handle(id.clone())[1],
+            r#"{"status":"pending"}"#
+        );
+
+        let approved = auth(url, signer_secret);
+        assert_eq!(approved[0], "false", "signer approval: {:?}", approved);
+
+        let waited = await_grant_auth_flow_handle(id.clone(), 60);
+        assert_eq!(waited[0], "false", "await: {:?}", waited);
+        let json: serde_json::Value = serde_json::from_str(&waited[1]).unwrap();
+        assert_eq!(json["status"], "approved");
+        let session = &json["session"];
+        assert_eq!(session["pubky"], signer.public_key().z32());
+        assert_eq!(session["client_id"], CLIENT_ID);
+        let grant_secret = session["grant_secret"]
+            .as_str()
+            .expect("grant_secret")
+            .to_string();
+        assert!(session["grant_id"].as_str().is_some());
+
+        let again = poll_grant_auth_flow_handle(id);
+        assert_eq!(
+            again[0], "true",
+            "an approval is handed out once: {:?}",
+            again
+        );
+        assert_eq!(auth_flow_handles::pending_count(), 0);
+
+        let url = format!(
+            "pubky://{}/pub/pubky-core-ffi.test/handle-flow",
+            signer.public_key().z32()
+        );
+        let written = put_with_session(url, "via handle flow".to_string(), grant_secret.clone());
+        assert_eq!(written[0], "false", "write: {:?}", written);
+        assert_eq!(revoke_own_grant(grant_secret)[0], "false");
+    }
+
+    // --- revoking a grant from its secret ------------------------------------------------------
+
+    #[test]
+    fn test_revoke_own_grant_needs_a_grant_secret() {
+        let result = revoke_own_grant("not-a-grant-secret".to_string());
+        assert_eq!(result[0], "true");
+        assert!(
+            result[1].starts_with("Not a grant session secret"),
+            "{}",
+            result[1]
+        );
+    }
+
+    #[test]
+    fn test_configure_session_cache_reports_what_it_keeps() {
+        assert_eq!(
+            configure_session_cache(32),
+            vec![
+                "false".to_string(),
+                "Session cache keeps 32 sessions".to_string()
+            ]
+        );
+        assert_eq!(
+            configure_session_cache(0)[1],
+            "Session cache keeps 1 sessions",
+            "zero would mint on every call"
+        );
+        configure_session_cache(session_cache::DEFAULT_CAPACITY as u32);
+    }
+
+    /// An unlink against the real homeserver: the grant is revoked from the secret alone, the
+    /// session is gone from the cache, and the next write with that secret is a rejection —
+    /// not a retry.
+    #[test]
+    fn test_revoke_own_grant_kills_the_sessions_minted_from_it() {
+        let (keypair, secret_key, homeserver) = get_test_setup();
+        let Some(signed_up) = sign_up_for_test(secret_key, homeserver) else {
+            return;
+        };
+        let session: serde_json::Value = serde_json::from_str(&signed_up[1]).unwrap();
+        let grant_secret = session["grant_secret"].as_str().unwrap().to_string();
+        let url = format!(
+            "pubky://{}/pub/pubky-core-ffi.test/revoked",
+            keypair.public_key().z32()
+        );
+        let written = put_with_session(url.clone(), "before".to_string(), grant_secret.clone());
+        assert_eq!(written[0], "false", "write: {:?}", written);
+
+        let revoked = revoke_own_grant(grant_secret.clone());
+        assert_eq!(revoked[0], "false", "revoke: {:?}", revoked);
+        assert_eq!(revoked[1], "Grant revoked");
+
+        let after = put_with_session(url, "after".to_string(), grant_secret.clone());
+        assert_eq!(
+            after[0], "true",
+            "a revoked grant cannot write: {:?}",
+            after
+        );
+        assert!(
+            after[1].starts_with(session_cache::SESSION_REJECTED),
+            "classified as a rejection, not trouble: {}",
+            after[1]
+        );
+
+        let again = revoke_own_grant(grant_secret);
+        assert_eq!(again[0], "true");
+        assert!(
+            again[1].starts_with(session_cache::SESSION_REJECTED),
+            "a second revoke says the grant is already gone: {}",
+            again[1]
         );
     }
 }

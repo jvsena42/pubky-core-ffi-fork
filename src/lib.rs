@@ -414,18 +414,27 @@ pub fn remove_event_listener() {
     EVENT_NOTIFIER.as_ref().remove_listener();
 }
 
-pub fn start_internal_event_loop() {
-    let event_notifier = EVENT_NOTIFIER.clone();
-    let runtime = TOKIO_RUNTIME.clone();
-    runtime.spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(2));
-        loop {
-            interval.tick().await;
-            event_notifier
-                .as_ref()
-                .notify_event("Internal event triggered".to_string());
-        }
+static EVENT_LOOP_STARTED: std::sync::Once = std::sync::Once::new();
+
+/// Starts the 2 s notifier loop at most once per process; returns whether this call started it.
+/// The loop is never stopped, so spawning one per call grew a long-lived host by one perpetual
+/// task per `generate_secret_key` (loopky#519).
+pub fn start_internal_event_loop() -> bool {
+    let mut started = false;
+    EVENT_LOOP_STARTED.call_once(|| {
+        let event_notifier = EVENT_NOTIFIER.clone();
+        TOKIO_RUNTIME.spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(2));
+            loop {
+                interval.tick().await;
+                event_notifier
+                    .as_ref()
+                    .notify_event("Internal event triggered".to_string());
+            }
+        });
+        started = true;
     });
+    started
 }
 
 #[uniffi::export]

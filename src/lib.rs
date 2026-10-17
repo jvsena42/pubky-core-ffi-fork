@@ -54,7 +54,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio;
 use tokio::runtime::Runtime;
-use tokio::time;
 
 /// TLS config for pkarr's **relay** HTTP client: bundled webpki roots, certificate revocation
 /// checking off.
@@ -373,7 +372,7 @@ pub trait EventListener: Send + Sync {
 
 #[derive(uniffi::Object)]
 pub struct EventNotifier {
-    listener: Arc<Mutex<Option<Box<dyn EventListener>>>>,
+    listener: Arc<Mutex<Option<Arc<dyn EventListener>>>>,
 }
 
 impl EventNotifier {
@@ -386,7 +385,7 @@ impl EventNotifier {
 
     pub fn set_listener(&self, listener: Box<dyn EventListener>) {
         let mut lock = self.listener.lock().unwrap();
-        *lock = Some(listener);
+        *lock = Some(Arc::from(listener));
     }
 
     pub fn remove_listener(&self) {
@@ -394,9 +393,11 @@ impl EventNotifier {
         *lock = None;
     }
 
+    /// Calls the listener after releasing the lock, so a callback that sets or removes the
+    /// listener does not re-lock the non-reentrant mutex on its own thread.
     pub fn notify_event(&self, event_data: String) {
-        let lock = self.listener.lock().unwrap();
-        if let Some(listener) = &*lock {
+        let listener = self.listener.lock().unwrap().clone();
+        if let Some(listener) = listener {
             listener.on_event_occurred(event_data);
         }
     }
@@ -412,29 +413,6 @@ pub fn set_event_listener(listener: Box<dyn EventListener>) {
 #[uniffi::export]
 pub fn remove_event_listener() {
     EVENT_NOTIFIER.as_ref().remove_listener();
-}
-
-static EVENT_LOOP_STARTED: std::sync::Once = std::sync::Once::new();
-
-/// Starts the 2 s notifier loop at most once per process; returns whether this call started it.
-/// The loop is never stopped, so spawning one per call grew a long-lived host by one perpetual
-/// task per `generate_secret_key` (loopky#519).
-pub fn start_internal_event_loop() -> bool {
-    let mut started = false;
-    EVENT_LOOP_STARTED.call_once(|| {
-        let event_notifier = EVENT_NOTIFIER.clone();
-        TOKIO_RUNTIME.spawn(async move {
-            let mut interval = time::interval(Duration::from_secs(2));
-            loop {
-                interval.tick().await;
-                event_notifier
-                    .as_ref()
-                    .notify_event("Internal event triggered".to_string());
-            }
-        });
-        started = true;
-    });
-    started
 }
 
 #[uniffi::export]
@@ -498,7 +476,6 @@ pub fn generate_secret_key() -> Vec<String> {
         Ok(json) => json,
         Err(e) => return create_response_vector(true, format!("Failed to serialize JSON: {}", e)),
     };
-    start_internal_event_loop();
     create_response_vector(false, json_str)
 }
 
